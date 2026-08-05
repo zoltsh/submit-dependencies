@@ -1,0 +1,37 @@
+name: Submit Zolt dependencies
+description: Submit the complete locked Zolt dependency graph to GitHub
+author: zoltsh
+
+inputs:
+  directory:
+    description: Project directory or any directory within the target Zolt workspace
+    required: false
+    default: .
+  workspace:
+    description: Workspace behavior: auto, true, or false
+    required: false
+    default: auto
+  github-token:
+    description: Token used to submit the dependency snapshot
+    required: false
+    default: ${{ github.token }}
+  validate-lock:
+    description: Resolve with --locked before submission; may contact configured repositories
+    required: false
+    default: "false"
+
+outputs:
+  snapshot-id:
+    description: GitHub dependency snapshot ID
+  dependency-count:
+    description: Number of external dependencies submitted
+  zolt-version:
+    description: Exact Zolt version used by the action
+
+runs:
+  using: node24
+  main: dist/index.js
+
+branding:
+  icon: shield
+  color: purple
