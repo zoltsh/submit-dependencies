@@ -1,22 +1,30 @@
-# submit-dependencies
+<p align="center">
+  <img src="https://raw.githubusercontent.com/zoltsh/zolt/main/logo.svg" alt="zolt" width="720">
+</p>
 
-Submit Zolt's complete locked dependency graph to GitHub.
+<h3 align="center">Submit Zolt dependencies to GitHub</h3>
 
-The action installs one checksum-pinned Zolt release, reads `zolt.lock` through
-Zolt's tree and CycloneDX projections, verifies that those projections agree,
-and submits the resulting Maven PURLs to GitHub's dependency graph. It does not
-build the project or contact Maven repositories by default.
+<p align="center">
+  Dependency graph, dependency review, and Dependabot alerts from <code>zolt.lock</code>.
+</p>
 
-> [!IMPORTANT]
-> This repository is pre-release. The implementation is complete through local
-> submission testing, and the embedded Zolt release includes the final workspace
-> tree contract. Do not publish an action tag until the remaining release gates
-> in [docs/RELEASING.md](docs/RELEASING.md) pass.
+<p align="center">
+  <a href="#use">Use</a>
+  <span> · </span>
+  <a href="#inputs">Inputs</a>
+  <span> · </span>
+  <a href="#workspaces">Workspaces</a>
+  <span> · </span>
+  <a href="./SECURITY.md">Security</a>
+  <span> · </span>
+  <a href="#development">Development</a>
+</p>
+
+<br />
 
 ## Use
 
-Run on the default branch and pin both checkout and this action to full commit
-SHAs:
+Run on the default branch. Pin checkout and this action to full commit SHAs.
 
 ```yaml
 name: Submit Zolt dependencies
@@ -33,10 +41,6 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: zolt-dependency-submission-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   submit:
     runs-on: ubuntu-24.04
@@ -44,77 +48,83 @@ jobs:
       - uses: actions/checkout@<full-commit-sha>
         with:
           persist-credentials: false
+
       - uses: zoltsh/submit-dependencies@<full-commit-sha>
 ```
 
-GitHub requires `contents: write` to create a dependency snapshot. The action
-rejects pull requests, merge queues, forks, and non-default branches so those
-runs cannot replace the default-branch graph.
+GitHub requires `contents: write` to accept dependency snapshots. The action
+rejects pull requests, merge queues, forks, and non-default branches.
+
+## What it does
+
+The action installs a checksum-pinned Zolt release, reads the committed lockfile
+with `zolt tree` and `zolt sbom`, checks that both graphs agree, and submits the
+result to GitHub.
+
+It includes direct and transitive dependencies, scopes, classifiers, artifact
+types, and child edges. Workspace members are excluded as first-party packages.
+
+Normal analysis is offline from Maven repositories. The only network requests
+download Zolt and submit the snapshot. The action does not build the project or
+run project code.
 
 ## Inputs
 
 | Input | Default | Meaning |
 | :--- | :---: | :--- |
-| `directory` | `.` | Project directory, or any directory inside the target workspace |
+| `directory` | `.` | Project directory, or a directory inside the workspace |
 | `workspace` | `auto` | `auto`, `true`, or `false` |
-| `github-token` | `github.token` | Token used only for GitHub submission |
+| `github-token` | `github.token` | Token used to submit the snapshot |
 | `validate-lock` | `false` | Run `zolt resolve --locked`; may contact configured repositories |
 
-`workspace: auto` searches upward inside `GITHUB_WORKSPACE` for either a
-`zolt.toml` containing `[workspace]` or a legacy `zolt-workspace.toml`.
-`workspace: false` uses only the selected directory. `workspace: true` fails if
-no workspace is found.
+## Workspaces
+
+`workspace: auto` searches upward for a workspace. `workspace: true` requires
+one. `workspace: false` submits only the selected project.
+
+Both modern workspaces declared in `zolt.toml` and legacy
+`zolt-workspace.toml` files are supported.
 
 ## Outputs
 
 | Output | Meaning |
 | :--- | :--- |
 | `snapshot-id` | GitHub dependency snapshot ID |
-| `dependency-count` | Number of submitted external dependencies |
-| `zolt-version` | Exact verified Zolt version used |
+| `dependency-count` | Submitted external dependency count |
+| `zolt-version` | Verified Zolt version used |
 
-## Behavior
+## Runners
 
-Normal analysis has only two network operations: downloading the immutable Zolt
-release asset and submitting the snapshot to GitHub. Tree and SBOM generation
-run with an absolute verified binary, argument arrays, no shell, an empty private
-cache, `--offline`, and a minimal environment that excludes the GitHub token.
-
-Every external direct and transitive dependency is submitted. Runtime evidence
-wins over development-only evidence, and direct evidence wins over indirect.
-Maven classifiers and non-default artifact types remain distinct. Workspace
-members are excluded as first-party packages. Unknown schemas, scopes, PURLs,
-edges, or tree/SBOM disagreements fail before any API call.
-
-The result feeds GitHub's dependency graph, dependency review, and Dependabot
-vulnerability alerts. This action does not provide native Dependabot version
-updates for Zolt files.
+Supported targets are `linux-x64`, `linux-arm64`, `macos-x64`, and
+`macos-arm64`. Windows is not supported.
 
 ## Compatibility
 
-| Action | Bundled Zolt | Tree schemas | Workspace lock version |
-| :--- | :--- | :---: | :---: |
-| pre-release | `0.1.0-zap.20260805.4d8ad3208ada` | 1, 2 | 5 |
+The action bundles Zolt `0.1.0-zap.20260805.4d8ad3208ada`. It accepts Zolt tree
+schemas 1 and 2 and workspace lock version 5.
 
-This candidate is built from Zolt commit `4d8ad3208ada1085861241cb2e5d42ade1a00cdf`.
-It remains a pre-release pin until the GitHub canary and platform matrix pass.
+## Read more
+
+| Read | When you need it |
+| :--- | :--- |
+| [Architecture](./docs/ARCHITECTURE.md) | Understand the modules and graph rules |
+| [Security](./SECURITY.md) | Review what the action trusts and rejects |
+| [Release guide](./docs/RELEASING.md) | Publish an action release |
+| [Canary guide](./docs/CANARY.md) | Test GitHub dependency-graph behavior |
 
 ## Development
 
-Use Node 22.18 or newer in the Node 22 line, or Node 24 or newer. GitHub runs the
-committed bundle with Node 24.
+Use Node 22.18 or newer in the Node 22 line, or Node 24 or newer. GitHub runs
+the committed bundle with Node 24.
 
 ```sh
 npm ci
 scripts/check
 ```
 
-`scripts/check` validates types and style, runs the coverage-gated tests,
-rebuilds `dist/` for byte comparison, and validates action/workflow YAML.
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the trust boundaries and
-[docs/RELEASING.md](docs/RELEASING.md) for the remaining external gates.
+`scripts/check` checks types and style, runs the tests, rebuilds `dist/` for
+comparison, and validates the action and workflows.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](./LICENSE).

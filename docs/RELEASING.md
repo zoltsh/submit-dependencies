@@ -1,39 +1,35 @@
 # Releasing
 
-The action is pinned to workspace-capable Zolt candidate
-`0.1.0-zap.20260805.4d8ad3208ada`. No action tag should be published until the
-remaining gates pass.
+Action releases use the JavaScript committed in `dist/`. They do not publish an
+npm package.
 
-## v0.1.0 gates
+## Prepare
 
-1. **Complete:** publish one Zolt release containing workspace tree schema v2
-   and its frozen golden contracts.
-2. **Complete:** replace `src/generated/zolt-release.ts` with that exact version
-   and the SHA-256 digest for all four supported release archives.
-3. Run `scripts/check`, `npm audit`, and the real installer matrix on Linux x64,
-   Linux ARM64, macOS x64, and macOS ARM64. Verify Windows fails immediately.
-   CI runs the published binary against the exact pinned Zolt source workspace
-   on every supported runner. A local installer-only check is
-   `RUN_LIVE_ZOLT_INSTALL=true npx vitest run test/live-install.test.ts`.
-4. Run a private canary containing standalone, workspace, classifier,
-   non-default-type, scope-duplicate, contextual-edge, and inert vulnerable-PURL
-   fixtures.
-5. Confirm dependency counts, first-party exclusion, direct/runtime merge rules,
-   child edges, snapshot replacement, stale dependency removal, and permission
-   failure behavior in GitHub's current dependency graph.
-6. Decide the default-JAR PURL policy from observed advisory matching. Apply any
-   change only through `src/converter/purl-policy.ts`, then repeat the canary.
-7. Confirm normal mode contacts no Maven repository and every API failure path
-   keeps token material out of logs.
-8. Review the committed Node 24 bundle and bundled licenses. Require a clean
-   rebuild with `scripts/check`.
-9. Commit with the repository signing convention, create a signed `v0.1.0` tag,
-   and publish no moving major tag yet.
-10. Record the immutable action commit in the README and dogfood it in
-    `zoltsh/zolt`.
+1. Update `src/generated/zolt-release.ts` with one published Zolt version, its
+   source commit, and all four archive checksums.
+2. Run `npm ci`, `npm audit`, `npm run bundle`, and `scripts/check`.
+3. Confirm the four-target integration job and Windows rejection job pass for
+   the exact commit.
+4. Run the [GitHub canary](./CANARY.md).
+5. Review the source diff, `dist/index.js`, and `dist/licenses.txt`.
+6. Confirm `main` is clean and protected.
 
-Follow [CANARY.md](CANARY.md) for the private GitHub dependency-graph proof in
-gates 4 through 7.
+## Publish
 
-The canary repository, release tag, publication, and dogfood workflow are
-external state changes and are intentionally not created by local verification.
+1. Create an OpenPGP-signed annotated version tag on the reviewed commit.
+2. Push the immutable tag.
+3. Create a GitHub release from the tag.
+4. Move a compatibility tag only after the versioned release is public and
+   verified.
+5. Update Zolt workflows to the release commit's full SHA.
+
+Do not rebuild `dist/` while tagging. The reviewed commit is the release
+artifact.
+
+## Verify
+
+- Confirm the tag resolves to the reviewed signed commit.
+- Run a consumer workflow pinned to the full commit SHA.
+- Confirm the expected Zolt version, snapshot ID, and dependency count.
+- Confirm replacement removes stale dependencies.
+- Confirm insufficient permissions fail without leaking sensitive data.

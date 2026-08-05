@@ -1,6 +1,6 @@
 ## Summary
 
-<!-- What exact contract or implementation boundary changes? -->
+<!-- What changed and why? -->
 
 ## Verification
 
@@ -8,7 +8,6 @@
 - [ ] `scripts/check`
 - [ ] `npm audit`
 - [ ] `git diff --check`
-- [ ] Failure-path coverage added or updated
-- [ ] `dist/` committed when runtime source changed
-- [ ] Architecture and security boundaries reviewed when behavior changed
-- [ ] Release metadata and all four platform digests reviewed when the Zolt pin changed
+- [ ] Tests cover new behavior and failures
+- [ ] `dist/` is committed when runtime source changes
+- [ ] Docs and release metadata are updated when needed
