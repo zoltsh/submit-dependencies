@@ -1,17 +1,17 @@
 import type { ReleaseArtifact, ReleaseTarget } from '../types';
 
-// Bootstrap pin for installer verification. Replace this generated object with
-// the first release containing the final tree --workspace contract before v0.1.0.
-export const ZOLT_VERSION = '0.1.0-zap.20260804.5a2d1dca56ef';
+// Workspace-capable release candidate. Keep the version and every platform
+// digest aligned with the immutable Zolt channel manifest.
+export const ZOLT_VERSION = '0.1.0-zap.20260805.4d8ad3208ada';
 
 const tag = `zolt-zap-${ZOLT_VERSION}`;
 const base = `https://github.com/zoltsh/releases/releases/download/${tag}`;
 
 export const ZOLT_RELEASE: Readonly<Record<ReleaseTarget, ReleaseArtifact>> = {
-    'linux-arm64': artifact('linux-arm64', 'c899630c4c022a78c4c76fee79eeaecaf3568584212a63da5770c4c74d789c8d'),
-    'linux-x64': artifact('linux-x64', '36602d50c5fcb5ae5f67312138b4781c5097d3a291c4dbd185b0711d25ed60c2'),
-    'macos-arm64': artifact('macos-arm64', 'd97f66869e5bf71328e92dd7cbc737a641999d0ab4e249e4eb61df39459f83ac'),
-    'macos-x64': artifact('macos-x64', '502f7464664aed6489ff642570aec98d79d9c9f0458726c7c0a53130bd6601e1'),
+    'linux-arm64': artifact('linux-arm64', '20cc3f1a6ce1cf1a6418248a772d9d239564394ac0962885a193f88b49286c6f'),
+    'linux-x64': artifact('linux-x64', '35b6157054a53ca2f50ff6bbb3d69289ba8e4dff3ba47e5920beb4e992dab1fc'),
+    'macos-arm64': artifact('macos-arm64', '59c5d0df71783f25f59754cdbfe90702e0d0e1b3927b366b599fdaba7784b117'),
+    'macos-x64': artifact('macos-x64', '2a39ffe3ffc0ea2e547603773278749e1282b641046346fef951984bced90716'),
 };
 
 function artifact(target: ReleaseTarget, sha256: string): ReleaseArtifact {

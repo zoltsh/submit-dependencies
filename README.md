@@ -9,9 +9,9 @@ build the project or contact Maven repositories by default.
 
 > [!IMPORTANT]
 > This repository is pre-release. The implementation is complete through local
-> submission testing, but the embedded Zolt pin is an installer bootstrap that
-> predates the final workspace tree contract. Do not publish an action tag until
-> the release gates in [docs/RELEASING.md](docs/RELEASING.md) pass.
+> submission testing, and the embedded Zolt release includes the final workspace
+> tree contract. Do not publish an action tag until the remaining release gates
+> in [docs/RELEASING.md](docs/RELEASING.md) pass.
 
 ## Use
 
@@ -94,10 +94,10 @@ updates for Zolt files.
 
 | Action | Bundled Zolt | Tree schemas | Workspace lock version |
 | :--- | :--- | :---: | :---: |
-| pre-release | installer bootstrap only | 1, 2 | 5 |
+| pre-release | `0.1.0-zap.20260805.4d8ad3208ada` | 1, 2 | 5 |
 
-The table will name the production Zolt pin when the first workspace-capable
-release passes the canary.
+This candidate is built from Zolt commit `4d8ad3208ada1085861241cb2e5d42ade1a00cdf`.
+It remains a pre-release pin until the GitHub canary and platform matrix pass.
 
 ## Development
 

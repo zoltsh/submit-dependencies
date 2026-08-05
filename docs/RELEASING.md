@@ -1,13 +1,15 @@
 # Releasing
 
-No action tag should be published from the current bootstrap pin.
+The action is pinned to workspace-capable Zolt candidate
+`0.1.0-zap.20260805.4d8ad3208ada`. No action tag should be published until the
+remaining gates pass.
 
 ## v0.1.0 gates
 
-1. Publish one Zolt release containing workspace tree schema v2 and its frozen
-   golden contracts.
-2. Replace `src/generated/zolt-release.ts` with that exact version and the
-   SHA-256 digest for all four supported release archives.
+1. **Complete:** publish one Zolt release containing workspace tree schema v2
+   and its frozen golden contracts.
+2. **Complete:** replace `src/generated/zolt-release.ts` with that exact version
+   and the SHA-256 digest for all four supported release archives.
 3. Run `scripts/check`, `npm audit`, and the real installer matrix on Linux x64,
    Linux ARM64, macOS x64, and macOS ARM64. Verify Windows fails immediately.
    A single-runner check is `RUN_LIVE_ZOLT_INSTALL=true npx vitest run
