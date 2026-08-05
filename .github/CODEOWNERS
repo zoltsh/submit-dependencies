@@ -1,0 +1,8 @@
+* @zoltsh/release-engineers
+
+/.github/ @zoltsh/release-engineers
+/action.yml @zoltsh/release-engineers
+/dist/ @zoltsh/release-engineers
+/src/converter/purl-policy.ts @zoltsh/release-engineers
+/src/generated/zolt-release.ts @zoltsh/release-engineers
+/src/install/ @zoltsh/release-engineers

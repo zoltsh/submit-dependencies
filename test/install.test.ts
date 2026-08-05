@@ -1,12 +1,13 @@
-import { access, chmod, copyFile, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { create } from 'tar';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ZOLT_RELEASE, ZOLT_VERSION } from '../src/generated/zolt-release';
+import { ZOLT_RELEASE, ZOLT_SOURCE_COMMIT, ZOLT_VERSION } from '../src/generated/zolt-release';
 import { installZolt, type Downloader } from '../src/install/install-zolt';
+import { RELEASE_TARGETS } from '../src/types';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -39,6 +40,18 @@ function downloader(source: string, sha256: string): Downloader & { dispose: Ret
 }
 
 describe('pinned installer', () => {
+    it('binds complete release metadata and CI source checkout to one commit', async () => {
+        expect(ZOLT_VERSION.endsWith(ZOLT_SOURCE_COMMIT.slice(0, 12))).toBe(true);
+        for (const target of RELEASE_TARGETS) {
+            const release = ZOLT_RELEASE[target];
+            expect(release.archive).toBe(`zolt-${ZOLT_VERSION}-${target}.tar.gz`);
+            expect(release.archiveUrl).toContain(`/zolt-zap-${ZOLT_VERSION}/${release.archive}`);
+            expect(release.sha256).toMatch(/^[0-9a-f]{64}$/u);
+        }
+        const workflow = await readFile(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+        expect(workflow).toContain(`ref: ${ZOLT_SOURCE_COMMIT}`);
+    });
+
     it('retains a verified private binary until explicit cleanup', async () => {
         const source = await archive('macos-arm64');
         const transport = downloader(source, ZOLT_RELEASE['macos-arm64'].sha256);

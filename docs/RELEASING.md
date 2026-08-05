@@ -12,8 +12,9 @@ remaining gates pass.
    and the SHA-256 digest for all four supported release archives.
 3. Run `scripts/check`, `npm audit`, and the real installer matrix on Linux x64,
    Linux ARM64, macOS x64, and macOS ARM64. Verify Windows fails immediately.
-   A single-runner check is `RUN_LIVE_ZOLT_INSTALL=true npx vitest run
-   test/live-install.test.ts`.
+   CI runs the published binary against the exact pinned Zolt source workspace
+   on every supported runner. A local installer-only check is
+   `RUN_LIVE_ZOLT_INSTALL=true npx vitest run test/live-install.test.ts`.
 4. Run a private canary containing standalone, workspace, classifier,
    non-default-type, scope-duplicate, contextual-edge, and inert vulnerable-PURL
    fixtures.
@@ -30,6 +31,9 @@ remaining gates pass.
    and publish no moving major tag yet.
 10. Record the immutable action commit in the README and dogfood it in
     `zoltsh/zolt`.
+
+Follow [CANARY.md](CANARY.md) for the private GitHub dependency-graph proof in
+gates 4 through 7.
 
 The canary repository, release tag, publication, and dogfood workflow are
 external state changes and are intentionally not created by local verification.

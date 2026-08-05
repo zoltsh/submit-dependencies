@@ -8,7 +8,7 @@ inputs:
     required: false
     default: .
   workspace:
-    description: Workspace behavior: auto, true, or false
+    description: "Workspace behavior: auto, true, or false"
     required: false
     default: auto
   github-token:

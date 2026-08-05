@@ -39485,6 +39485,7 @@ const external_node_os_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import
 // Workspace-capable release candidate. Keep the version and every platform
 // digest aligned with the immutable Zolt channel manifest.
 const ZOLT_VERSION = '0.1.0-zap.20260805.4d8ad3208ada';
+const ZOLT_SOURCE_COMMIT = '4d8ad3208ada1085861241cb2e5d42ade1a00cdf';
 const tag = `zolt-zap-${ZOLT_VERSION}`;
 const base = `https://github.com/zoltsh/releases/releases/download/${tag}`;
 const ZOLT_RELEASE = {
