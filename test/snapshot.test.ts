@@ -31,7 +31,6 @@ describe('dependency snapshot construction', () => {
             },
             manifest: manifest(),
             scanned: new Date('2026-08-05T12:34:56.000Z'),
-            zoltVersion: '0.2.0',
         });
         expect(result).toMatchObject({
             version: 0,
@@ -46,12 +45,9 @@ describe('dependency snapshot construction', () => {
             detector: {
                 name: 'zoltsh/submit-dependencies', version: '0.1.0',
                 url: 'https://github.com/zoltsh/submit-dependencies',
-                metadata: {
-                    lock_version: 5, mode: 'workspace', sbom_spec: '1.5', state: 'submit', tree_schema: 3,
-                    zolt_version: '0.2.0',
-                },
             },
         });
+        expect(Object.keys(result.detector).sort()).toEqual(['name', 'url', 'version']);
         expect(result.manifests['zolt.lock']?.resolved).toEqual({
             'pkg:maven/org.example/a@1.0.0?type=jar': {
                 dependencies: ['pkg:maven/org.example/b@2.0.0?type=jar'],
@@ -64,7 +60,7 @@ describe('dependency snapshot construction', () => {
         });
     });
 
-    it('uses stable distinct correlators and represents project lock versions as unknown', () => {
+    it('uses stable distinct correlators for project locks', () => {
         const workspaceManifest = manifest();
         const project: ConvertedManifest = {
             dependencies: workspaceManifest.dependencies,
@@ -77,9 +73,9 @@ describe('dependency snapshot construction', () => {
         const snapshot = buildSnapshot({
             context: { attempt: '1', owner: 'o', ref: 'refs/heads/main', repository: 'r', runId: '1',
                 serverUrl: 'https://github.com', sha: 'b'.repeat(40) },
-            manifest: project, scanned: new Date(0), zoltVersion: '1.0.0',
+            manifest: project, scanned: new Date(0),
         });
-        expect(snapshot.detector.metadata.lock_version).toBe('unknown');
+        expect(Object.keys(snapshot.detector).sort()).toEqual(['name', 'url', 'version']);
         expect(manifestCorrelator('services/api/zolt.lock')).not.toBe(manifestCorrelator('zolt.lock'));
     });
 
@@ -93,7 +89,7 @@ describe('dependency snapshot construction', () => {
             manifestPath: 'services/old/zolt.lock',
             scanned: new Date('2026-08-05T12:35:00.000Z'),
         });
-        expect(result.detector.metadata).toEqual({ state: 'clear' });
+        expect(Object.keys(result.detector).sort()).toEqual(['name', 'url', 'version']);
         expect(result.job.correlator).toBe(manifestCorrelator('services/old/zolt.lock'));
         expect(result.manifests).toEqual({
             'services/old/zolt.lock': {

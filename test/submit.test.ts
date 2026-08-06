@@ -8,7 +8,7 @@ const context = {
     serverUrl: 'https://github.com', sha: 'a'.repeat(40),
 };
 const snapshot = {
-    detector: { metadata: {}, name: 'detector', url: 'https://example.com', version: '1' },
+    detector: { name: 'detector', url: 'https://example.com', version: '1' },
     job: { correlator: 'c', html_url: 'https://github.com/run', id: '5.1' },
     manifests: {}, ref: context.ref, scanned: '2026-08-05T00:00:00.000Z', sha: context.sha, version: 0,
 } satisfies DependencySnapshot;

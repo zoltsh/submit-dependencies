@@ -116,7 +116,6 @@ export async function runAction(dependencies: ActionDependencies = {}): Promise<
             context: submissionContext,
             manifest,
             scanned: (dependencies.now ?? (() => new Date()))(),
-            zoltVersion: installed.version,
         });
         const submission = await (dependencies.submit ?? submitSnapshot)(inputs.githubToken, submissionContext, snapshot);
         actionCore.setOutput('snapshot-id', submission.id);

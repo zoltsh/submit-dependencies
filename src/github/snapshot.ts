@@ -13,7 +13,6 @@ export interface SnapshotDependency {
 
 export interface DependencySnapshot {
     readonly detector: {
-        readonly metadata: Readonly<Record<string, string | number | boolean>>;
         readonly name: string;
         readonly url: string;
         readonly version: string;
@@ -38,7 +37,6 @@ export interface BuildSnapshotInput {
     readonly context: GitHubSubmissionContext;
     readonly manifest: ConvertedManifest;
     readonly scanned: Date;
-    readonly zoltVersion: string;
 }
 
 export interface BuildClearSnapshotInput {
@@ -60,16 +58,8 @@ export function buildSnapshot(input: BuildSnapshotInput): DependencySnapshot {
             scope: dependency.scope,
         };
     }
-    const metadata: Record<string, string | number | boolean> = {
-        lock_version: input.manifest.lockVersion ?? 'unknown',
-        mode: input.manifest.mode,
-        sbom_spec: '1.5',
-        state: 'submit',
-        tree_schema: input.manifest.treeSchema,
-        zolt_version: input.zoltVersion,
-    };
     return {
-        detector: { metadata, name: DETECTOR_NAME, url: DETECTOR_URL, version: ACTION_VERSION },
+        detector: { name: DETECTOR_NAME, url: DETECTOR_URL, version: ACTION_VERSION },
         job: snapshotJob(input.context, input.manifest.sourceLocation),
         manifests: {
             [input.manifest.sourceLocation]: {
@@ -88,7 +78,6 @@ export function buildSnapshot(input: BuildSnapshotInput): DependencySnapshot {
 export function buildClearSnapshot(input: BuildClearSnapshotInput): DependencySnapshot {
     return {
         detector: {
-            metadata: { state: 'clear' },
             name: DETECTOR_NAME,
             url: DETECTOR_URL,
             version: ACTION_VERSION,

@@ -34855,16 +34855,8 @@ function buildSnapshot(input) {
             scope: dependency.scope,
         };
     }
-    const metadata = {
-        lock_version: input.manifest.lockVersion ?? 'unknown',
-        mode: input.manifest.mode,
-        sbom_spec: '1.5',
-        state: 'submit',
-        tree_schema: input.manifest.treeSchema,
-        zolt_version: input.zoltVersion,
-    };
     return {
-        detector: { metadata, name: DETECTOR_NAME, url: DETECTOR_URL, version: ACTION_VERSION },
+        detector: { name: DETECTOR_NAME, url: DETECTOR_URL, version: ACTION_VERSION },
         job: snapshotJob(input.context, input.manifest.sourceLocation),
         manifests: {
             [input.manifest.sourceLocation]: {
@@ -34882,7 +34874,6 @@ function buildSnapshot(input) {
 function buildClearSnapshot(input) {
     return {
         detector: {
-            metadata: { state: 'clear' },
             name: DETECTOR_NAME,
             url: DETECTOR_URL,
             version: ACTION_VERSION,
@@ -40597,7 +40588,6 @@ async function runAction(dependencies = {}) {
             context: submissionContext,
             manifest,
             scanned: (dependencies.now ?? (() => new Date()))(),
-            zoltVersion: installed.version,
         });
         const submission = await (dependencies.submit ?? submitSnapshot)(inputs.githubToken, submissionContext, snapshot);
         actionCore.setOutput('snapshot-id', submission.id);
