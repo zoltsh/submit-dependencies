@@ -34240,13 +34240,29 @@ function normalizeForGitHub(value, policy) {
     return new packageurl_js.PackageURL('maven', parsed.packageUrl.namespace, parsed.packageUrl.name, parsed.packageUrl.version, Object.keys(qualifiers).length === 0 ? undefined : qualifiers).toString();
 }
 
+;// CONCATENATED MODULE: external "node:path"
+const external_node_path_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:path");
 ;// CONCATENATED MODULE: ./src/manifest-path.ts
-function isZoltManifestPath(value) {
-    return value !== ''
-        && !value.startsWith('/')
-        && !value.includes('\\')
-        && !value.split('/').includes('..')
-        && (value === 'zolt.lock' || value.endsWith('/zolt.lock'));
+
+function parseZoltManifestPath(value) {
+    if (value === ''
+        || external_node_path_namespaceObject.posix.isAbsolute(value)
+        || value.includes('\\')
+        || containsControlCharacter(value)
+        || external_node_path_namespaceObject.posix.normalize(value) !== value)
+        return undefined;
+    const segments = value.split('/');
+    if (segments.some((segment) => segment === '' || segment === '.' || segment === '..'))
+        return undefined;
+    return value === 'zolt.lock' || value.endsWith('/zolt.lock') ? value : undefined;
+}
+function containsControlCharacter(value) {
+    for (const character of value) {
+        const codePoint = character.codePointAt(0);
+        if (codePoint !== undefined && (codePoint <= 31 || codePoint >= 127 && codePoint <= 159))
+            return true;
+    }
+    return false;
 }
 
 ;// CONCATENATED MODULE: ./src/converter/convert.ts
@@ -34257,7 +34273,7 @@ function isZoltManifestPath(value) {
 
 const ROOT_GRAPH_NODE = 'zolt:root';
 function convert(input) {
-    validateManifestPath(input.manifestPath);
+    const manifestPath = validateManifestPath(input.manifestPath);
     const tree = decodeTree(input.tree);
     const bom = decodeCycloneDx(input.bom);
     const firstParty = firstPartyComponents(tree, bom);
@@ -34291,8 +34307,8 @@ function convert(input) {
         dependencies,
         ...tree.lockVersion === undefined ? {} : { lockVersion: tree.lockVersion },
         mode: tree.mode,
-        name: input.manifestPath,
-        sourceLocation: input.manifestPath,
+        name: manifestPath,
+        sourceLocation: manifestPath,
         statistics,
         treeSchema: tree.schemaVersion,
     };
@@ -34403,17 +34419,30 @@ function treeDependencyGraph(tree, mappings, accumulators, firstParty) {
         .map((purl) => [purl, new Set()]));
     if (tree.mode === 'workspace') {
         const root = mapValue(graph, ROOT_GRAPH_NODE, 'Missing workspace root graph node.');
+        const rootedOccurrences = new Set();
         for (const memberPurl of firstParty.purlByPath.values())
             root.add(memberPurl);
         for (const member of tree.workspaceMembers) {
             const memberPurl = mapValue(firstParty.purlByPath, member.path, `Missing member mapping for ${member.path}.`);
             for (const edge of member.dependencies) {
-                const target = resolveEdge(edge, tree.packages, nodes);
+                const target = resolveEdge(edge, tree.schemaVersion, tree.packages, nodes);
                 const targetMapping = mapValue(mappings, target.nodeKey, `Missing package mapping for ${target.coordinate}.`);
+                if (!target.members.includes(member.path)) {
+                    throw graphError('ZOLT-GRAPH-017', `Workspace member ${member.path} roots ${edge}, but that occurrence does not attribute itself to the member.`);
+                }
+                if (!target.direct && !injectedToolingScope(target.scope)) {
+                    throw graphError('ZOLT-GRAPH-017', `Workspace member ${member.path} roots indirect non-tooling occurrence ${edge}.`);
+                }
+                rootedOccurrences.add(target.nodeKey);
                 if (memberPurl === targetMapping.purl) {
                     throw graphError('ZOLT-GRAPH-010', `Workspace member ${member.path} has a self-edge ${edge}.`);
                 }
                 mapValue(graph, memberPurl, `Missing tree graph node for ${memberPurl}.`).add(targetMapping.purl);
+            }
+        }
+        for (const pkg of tree.packages) {
+            if (pkg.direct && !rootedOccurrences.has(pkg.nodeKey)) {
+                throw graphError('ZOLT-GRAPH-017', `Direct workspace occurrence ${pkg.coordinate}:${pkg.scope} is absent from every member root.`);
             }
         }
     }
@@ -34423,7 +34452,7 @@ function treeDependencyGraph(tree, mappings, accumulators, firstParty) {
             mapValue(graph, ROOT_GRAPH_NODE, 'Missing project root graph node.').add(sourceMapping.purl);
         }
         for (const edge of source.dependencies) {
-            const target = resolveEdge(edge, tree.packages, nodes);
+            const target = resolveEdge(edge, tree.schemaVersion, tree.packages, nodes);
             const targetMapping = mapValue(mappings, target.nodeKey, `Missing package mapping for ${target.coordinate}.`);
             if (!targetMapping.firstParty && !accumulators.has(targetMapping.purl)) {
                 throw graphError('ZOLT-GRAPH-009', `Dependency edge ${edge} does not target a submitted package.`);
@@ -34440,8 +34469,11 @@ function treeDependencyGraph(tree, mappings, accumulators, firstParty) {
     }
     return graph;
 }
-function resolveEdge(edge, packages, nodes) {
+function resolveEdge(edge, schemaVersion, packages, nodes) {
     const parts = edge.split(':');
+    if (schemaVersion === 3 && parts.length !== 5) {
+        throw graphError('ZOLT-GRAPH-011', `Schema-3 dependency edge ${edge} must contain exactly five fields.`);
+    }
     if (parts.length < 3 || parts.length > 5 || parts.some((part) => part === '')) {
         throw graphError('ZOLT-GRAPH-011', `Malformed dependency edge ${edge}.`);
     }
@@ -34533,10 +34565,19 @@ function compareGraphs(tree, bom) {
 function runtimeScope(scope) {
     return scope === 'compile' || scope === 'runtime' || scope === 'provided';
 }
+function injectedToolingScope(scope) {
+    return scope === 'tool-coverage'
+        || scope === 'tool-exec'
+        || scope === 'tool-openapi'
+        || scope === 'tool-protobuf'
+        || scope === 'tool-spring-aot';
+}
 function validateManifestPath(value) {
-    if (!isZoltManifestPath(value)) {
+    const manifestPath = parseZoltManifestPath(value);
+    if (manifestPath === undefined) {
         throw graphError('ZOLT-GRAPH-013', `Manifest path ${JSON.stringify(value)} is not repository-relative.`);
     }
+    return manifestPath;
 }
 function edgePart(parts, index, edge) {
     const value = parts.at(index);
@@ -34553,8 +34594,6 @@ function mapValue(values, key, message) {
 
 ;// CONCATENATED MODULE: external "node:fs/promises"
 const promises_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:fs/promises");
-;// CONCATENATED MODULE: external "node:path"
-const external_node_path_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:path");
 ;// CONCATENATED MODULE: ./src/environment/directory.ts
 
 
@@ -34664,6 +34703,66 @@ async function resolveExecutionContext(inputs, environment = process.env) {
         }),
     ]);
     return { event, repository };
+}
+
+;// CONCATENATED MODULE: external "node:child_process"
+const external_node_child_process_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:child_process");
+// EXTERNAL MODULE: external "node:util"
+var external_node_util_ = __nccwpck_require__(7975);
+;// CONCATENATED MODULE: ./src/environment/repository-state.ts
+
+
+
+const execute = (0,external_node_util_.promisify)(external_node_child_process_namespaceObject.execFile);
+async function verifyRepositoryState(input, options = {}) {
+    const runner = options.runner ?? runGit;
+    const gitOptions = {
+        cwd: input.workspace,
+        environment: gitEnvironment(options.environment ?? process.env),
+    };
+    const manifestPathspec = `:(literal)${input.manifestPath}`;
+    const head = (await git(runner, ['rev-parse', '--verify', 'HEAD^{commit}'], gitOptions, 'Could not read the checked-out commit. Run this action after actions/checkout.')).trim();
+    if (!/^[a-fA-F0-9]{40}$/u.test(head) || head.toLowerCase() !== input.expectedSha.toLowerCase()) {
+        throw repositoryError('The checked-out HEAD does not equal GITHUB_SHA. Check out the triggering commit before submission.');
+    }
+    if (input.state === 'submit') {
+        await git(runner, ['ls-files', '--error-unmatch', '--', manifestPathspec], gitOptions, 'The selected zolt.lock is not tracked at GITHUB_SHA. Commit the lockfile before submission.');
+    }
+    const status = await git(runner, ['status', '--porcelain=v1', '--untracked-files=all', '--', manifestPathspec], gitOptions, 'Could not verify the selected manifest worktree state.');
+    if (status !== '') {
+        throw repositoryError('The selected manifest differs from GITHUB_SHA. Commit or restore the lockfile before submission.');
+    }
+}
+async function runGit(arguments_, options) {
+    const result = await execute('git', [...arguments_], {
+        cwd: options.cwd,
+        encoding: 'utf8',
+        env: options.environment,
+        maxBuffer: 1024 * 1024,
+        timeout: 30_000,
+        windowsHide: true,
+    });
+    return result.stdout;
+}
+async function git(runner, arguments_, options, message) {
+    try {
+        return await runner(arguments_, options);
+    }
+    catch (error) {
+        throw repositoryError(message, error);
+    }
+}
+function gitEnvironment(source) {
+    const allowed = ['LANG', 'LC_ALL', 'PATH', 'TMPDIR'];
+    return {
+        ...Object.fromEntries(allowed.flatMap((key) => source[key] === undefined ? [] : [[key, source[key]]])),
+        GIT_CONFIG_GLOBAL: '/dev/null',
+        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_OPTIONAL_LOCKS: '0',
+    };
+}
+function repositoryError(message, cause) {
+    return new SubmitDependenciesError('ZOLT-GIT-001', message, cause === undefined ? undefined : { cause });
 }
 
 ;// CONCATENATED MODULE: ./src/github/context.ts
@@ -39639,17 +39738,18 @@ function readInputs(reader, maskSecret = () => undefined) {
     const workspace = parseWorkspace(reader.getInput('workspace'));
     const validateLock = parseBoolean('validate-lock', reader.getInput('validate-lock'));
     const state = parseState(reader.getInput('state'));
-    const manifestPath = reader.getInput('manifest-path').trim();
+    const manifestPathInput = reader.getInput('manifest-path', { trimWhitespace: false });
+    const manifestPath = parseZoltManifestPath(manifestPathInput);
     if (githubToken.trim() === '') {
         throw new SubmitDependenciesError('ZOLT-INPUT-002', 'github-token is empty. Use the default github.token or provide a token with contents: write.');
     }
     if (state === 'clear') {
-        if (!isZoltManifestPath(manifestPath)) {
+        if (manifestPath === undefined) {
             throw new SubmitDependenciesError('ZOLT-INPUT-009', 'manifest-path must name the repository-relative zolt.lock to clear.');
         }
         return { directory, githubToken, manifestPath, state, validateLock, workspace };
     }
-    if (manifestPath !== '') {
+    if (manifestPathInput !== '') {
         throw new SubmitDependenciesError('ZOLT-INPUT-009', 'manifest-path is only valid when state is clear.');
     }
     return { directory, githubToken, state, validateLock, workspace };
@@ -39934,10 +40034,6 @@ function assertResponse(message, maximumBytes) {
     }
 }
 
-;// CONCATENATED MODULE: external "node:child_process"
-const external_node_child_process_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:child_process");
-// EXTERNAL MODULE: external "node:util"
-var external_node_util_ = __nccwpck_require__(7975);
 ;// CONCATENATED MODULE: ./src/public-output.ts
 
 const MAX_PUBLIC_MESSAGE_CHARACTERS = 4096;
@@ -39966,22 +40062,28 @@ function publicErrorMessage(error, secrets = []) {
     return publicText(value, secrets);
 }
 function publicText(value, secrets = [], limit = MAX_PUBLIC_MESSAGE_CHARACTERS) {
-    let safe = value;
-    for (const secret of secrets)
-        safe = safe.split(secret).join('***');
-    safe = safe
+    let safe = value
         .replace(ANSI_ESCAPE, '')
         .split('')
         .map((character) => isControlCharacter(character) ? ' ' : character)
         .join('')
-        .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/giu, '$1***:***@')
-        .replace(/([?&](?:access_key|api_key|auth|credential|password|secret|token)=)[^&\s]+/giu, '$1***')
-        .replace(/::/gu, ': :')
         .replace(/\s+/gu, ' ')
         .trim();
+    safe = redactSecrets(safe, secrets)
+        .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/giu, '$1***:***@')
+        .replace(/([?&](?:access_key|api_key|auth|credential|password|secret|token)=)[^&\s]+/giu, '$1***');
+    safe = redactSecrets(safe, secrets).replace(/::/gu, ': :');
     if (safe.length <= limit)
         return safe;
     return `${safe.slice(0, Math.max(0, limit - 1))}…`;
+}
+function redactSecrets(value, secrets) {
+    let safe = value;
+    for (const secret of secrets) {
+        if (secret !== '')
+            safe = safe.split(secret).join('***');
+    }
+    return safe;
 }
 function addSecret(values, value) {
     if (value !== undefined && value.length >= 4)
@@ -39997,11 +40099,11 @@ function isControlCharacter(value) {
 
 
 
-const execute = (0,external_node_util_.promisify)(external_node_child_process_namespaceObject.execFile);
+const process_execute = (0,external_node_util_.promisify)(external_node_child_process_namespaceObject.execFile);
 const MAX_MACHINE_DOCUMENT_BYTES = 64 * 1024 * 1024;
 async function runZolt(binary, arguments_, options) {
     try {
-        const result = await execute(binary, [...arguments_], {
+        const result = await process_execute(binary, [...arguments_], {
             cwd: options.cwd,
             encoding: 'buffer',
             env: options.environment,
@@ -40022,8 +40124,15 @@ function minimalZoltEnvironment(source) {
     return Object.fromEntries(allowed.flatMap((key) => source[key] === undefined ? [] : [[key, source[key]]]));
 }
 function validationEnvironment(source, githubToken) {
-    const denied = new Set(['ACTIONS_RUNTIME_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'INPUT_GITHUB-TOKEN']);
-    return Object.fromEntries(Object.entries(source).filter(([key, value]) => !denied.has(key) && value !== githubToken));
+    const denied = new Set([
+        'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+        'ACTIONS_ID_TOKEN_REQUEST_URL',
+        'ACTIONS_RUNTIME_TOKEN',
+        'GH_TOKEN',
+        'GITHUB_TOKEN',
+        'INPUT_GITHUB-TOKEN',
+    ]);
+    return Object.fromEntries(Object.entries(source).filter(([key, value]) => !denied.has(key) && !/^ACTIONS_.*TOKEN$/u.test(key) && value !== githubToken));
 }
 function safeStderr(value, secrets) {
     if (value === undefined)
@@ -40384,6 +40493,7 @@ function sbomArguments(selection, output, cacheRoot) {
 
 
 
+
 async function runAction(dependencies = {}) {
     const actionCore = dependencies.core ?? core_namespaceObject;
     const environment = dependencies.environment ?? process.env;
@@ -40409,6 +40519,12 @@ async function runAction(dependencies = {}) {
             if (manifestPath === undefined) {
                 throw new SubmitDependenciesError('ZOLT-INPUT-009', 'manifest-path is required when state is clear.');
             }
+            await (dependencies.verifyRepository ?? verifyRepositoryState)({
+                expectedSha: submissionContext.sha,
+                manifestPath,
+                state: inputs.state,
+                workspace: context.repository.workspace,
+            }, { environment });
             actionCore.info(`Validated ${manifestPath} tombstone on ${context.event.defaultBranch}.`);
             const snapshot = buildClearSnapshot({
                 context: submissionContext,
@@ -40431,6 +40547,12 @@ async function runAction(dependencies = {}) {
         installed = await (dependencies.install ?? installZolt)(target, { environment });
         actionCore.info(`Verified pinned Zolt ${installed.version} for ${installed.target}; SHA-256 ${installed.sha256}.`);
         const machine = await (dependencies.capture ?? captureZoltOutputs)(installed.binary, inputs, context.repository, { environment });
+        await (dependencies.verifyRepository ?? verifyRepositoryState)({
+            expectedSha: submissionContext.sha,
+            manifestPath: machine.manifestPath,
+            state: inputs.state,
+            workspace: context.repository.workspace,
+        }, { environment });
         const manifest = (dependencies.convertGraph ?? convert)({
             bom: machine.bom,
             manifestPath: machine.manifestPath,

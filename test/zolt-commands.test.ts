@@ -43,6 +43,9 @@ describe('Zolt command orchestration', () => {
         };
         const result = await captureZoltOutputs('/verified/zolt', inputs, repository, {
             environment: {
+                ACTIONS_FUTURE_TOKEN: 'future-github-bearer',
+                ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'oidc-bearer',
+                ACTIONS_ID_TOKEN_REQUEST_URL: 'https://oidc.example/token',
                 GITHUB_TOKEN: 'github-secret',
                 HOME: '/home/runner',
                 INPUT_GITHUB_TOKEN: 'github-secret',
@@ -63,6 +66,9 @@ describe('Zolt command orchestration', () => {
         expect(calls[0]?.args).toContain('--locked');
         expect(calls[0]?.options.environment.MAVEN_SECRET).toBe('repository-secret');
         expect(Object.values(calls[0]?.options.environment ?? {})).not.toContain('github-secret');
+        expect(calls[0]?.options.environment).not.toHaveProperty('ACTIONS_FUTURE_TOKEN');
+        expect(calls[0]?.options.environment).not.toHaveProperty('ACTIONS_ID_TOKEN_REQUEST_TOKEN');
+        expect(calls[0]?.options.environment).not.toHaveProperty('ACTIONS_ID_TOKEN_REQUEST_URL');
         expect(calls[1]?.args).toContain('tree');
         expect(calls[1]?.args).toContain('--workspace');
         expect(calls[2]?.args).toEqual(expect.arrayContaining([

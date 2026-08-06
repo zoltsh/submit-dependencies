@@ -68,6 +68,9 @@ The action installs a checksum-pinned Zolt release, reads the committed lockfile
 with `zolt tree` and `zolt sbom`, checks that both graphs agree, and submits the
 result to GitHub.
 
+The checkout must be at `GITHUB_SHA`. In submit mode, the selected `zolt.lock`
+must be tracked and unmodified. Generated or modified lockfiles are rejected.
+
 It includes direct and transitive dependencies, scopes, classifiers, artifact
 types, and child edges. Workspace members are excluded as first-party packages.
 
@@ -88,7 +91,7 @@ after a newer one.
 | `github-token` | `github.token` | Token used to submit the snapshot |
 | `validate-lock` | `false` | Run `zolt resolve --locked`; may contact configured repositories |
 | `state` | `submit` | `submit` a lock graph or `clear` its previous snapshot |
-| `manifest-path` | — | Repository-relative `zolt.lock` path; required only with `state: clear` |
+| `manifest-path` | — | Canonical repository-relative `zolt.lock` path; required only with `state: clear` |
 
 ## Workspaces
 
@@ -129,7 +132,9 @@ Supported targets are `linux-x64`, `linux-arm64`, `macos-x64`, and
 
 ## Compatibility
 
-The action accepts Zolt tree schemas 1 and 3 and workspace lock version 5.
+The action accepts Zolt tree schemas 1 and 3 and workspace lock version 5. It
+bundles Zolt `0.1.0-zap.20260806.5ba5361d856f` from source commit
+[`5ba5361d856fd43d65e4ca2d933271a6eff01c3f`](https://github.com/zoltsh/zolt/commit/5ba5361d856fd43d65e4ca2d933271a6eff01c3f).
 
 ## Read more
 

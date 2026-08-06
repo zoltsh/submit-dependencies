@@ -43,20 +43,27 @@ export function publicText(
     secrets: readonly string[] = [],
     limit = MAX_PUBLIC_MESSAGE_CHARACTERS,
 ): string {
-    let safe = value;
-    for (const secret of secrets) safe = safe.split(secret).join('***');
-    safe = safe
+    let safe = value
         .replace(ANSI_ESCAPE, '')
         .split('')
         .map((character) => isControlCharacter(character) ? ' ' : character)
         .join('')
-        .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/giu, '$1***:***@')
-        .replace(/([?&](?:access_key|api_key|auth|credential|password|secret|token)=)[^&\s]+/giu, '$1***')
-        .replace(/::/gu, ': :')
         .replace(/\s+/gu, ' ')
         .trim();
+    safe = redactSecrets(safe, secrets)
+        .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/giu, '$1***:***@')
+        .replace(/([?&](?:access_key|api_key|auth|credential|password|secret|token)=)[^&\s]+/giu, '$1***');
+    safe = redactSecrets(safe, secrets).replace(/::/gu, ': :');
     if (safe.length <= limit) return safe;
     return `${safe.slice(0, Math.max(0, limit - 1))}…`;
+}
+
+function redactSecrets(value: string, secrets: readonly string[]): string {
+    let safe = value;
+    for (const secret of secrets) {
+        if (secret !== '') safe = safe.split(secret).join('***');
+    }
+    return safe;
 }
 
 function addSecret(values: Set<string>, value: string | undefined): void {

@@ -1,7 +1,7 @@
 import type * as core from '@actions/core';
 
 import { SubmitDependenciesError } from './errors';
-import { isZoltManifestPath } from './manifest-path';
+import { parseZoltManifestPath } from './manifest-path';
 import type { ActionInputs, SubmissionState, WorkspaceMode } from './types';
 
 export interface InputReader {
@@ -18,7 +18,8 @@ export function readInputs(reader: InputReader, maskSecret: (secret: string) => 
     const workspace = parseWorkspace(reader.getInput('workspace'));
     const validateLock = parseBoolean('validate-lock', reader.getInput('validate-lock'));
     const state = parseState(reader.getInput('state'));
-    const manifestPath = reader.getInput('manifest-path').trim();
+    const manifestPathInput = reader.getInput('manifest-path', { trimWhitespace: false });
+    const manifestPath = parseZoltManifestPath(manifestPathInput);
     if (githubToken.trim() === '') {
         throw new SubmitDependenciesError(
             'ZOLT-INPUT-002',
@@ -26,7 +27,7 @@ export function readInputs(reader: InputReader, maskSecret: (secret: string) => 
         );
     }
     if (state === 'clear') {
-        if (!isZoltManifestPath(manifestPath)) {
+        if (manifestPath === undefined) {
             throw new SubmitDependenciesError(
                 'ZOLT-INPUT-009',
                 'manifest-path must name the repository-relative zolt.lock to clear.',
@@ -34,7 +35,7 @@ export function readInputs(reader: InputReader, maskSecret: (secret: string) => 
         }
         return { directory, githubToken, manifestPath, state, validateLock, workspace };
     }
-    if (manifestPath !== '') {
+    if (manifestPathInput !== '') {
         throw new SubmitDependenciesError('ZOLT-INPUT-009', 'manifest-path is only valid when state is clear.');
     }
     return { directory, githubToken, state, validateLock, workspace };

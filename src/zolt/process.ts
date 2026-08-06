@@ -56,9 +56,16 @@ export function minimalZoltEnvironment(source: NodeJS.ProcessEnv): NodeJS.Proces
 }
 
 export function validationEnvironment(source: NodeJS.ProcessEnv, githubToken: string): NodeJS.ProcessEnv {
-    const denied = new Set(['ACTIONS_RUNTIME_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'INPUT_GITHUB-TOKEN']);
+    const denied = new Set([
+        'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+        'ACTIONS_ID_TOKEN_REQUEST_URL',
+        'ACTIONS_RUNTIME_TOKEN',
+        'GH_TOKEN',
+        'GITHUB_TOKEN',
+        'INPUT_GITHUB-TOKEN',
+    ]);
     return Object.fromEntries(Object.entries(source).filter(([key, value]) =>
-        !denied.has(key) && value !== githubToken));
+        !denied.has(key) && !/^ACTIONS_.*TOKEN$/u.test(key) && value !== githubToken));
 }
 
 function safeStderr(value: Buffer | string | undefined, secrets: readonly string[]): string {

@@ -19,13 +19,16 @@ The action treats repository paths, event data, Zolt archives, machine output,
 and GitHub API failures as untrusted.
 
 - Paths must stay inside the checked-out repository. Symlink escapes fail.
+- The checkout must be at `GITHUB_SHA`; submitted locks must be tracked and
+  unmodified at that commit.
 - Zolt release URLs and targets are fixed. Archives must match their SHA-256 and
   expected layout.
 - Archives cannot contain traversal paths, links, special files, or unexpected
   roots.
 - Zolt runs by absolute path with argument arrays and no shell.
 - Tree and CycloneDX output is size-bounded and strictly decoded.
-- Both graphs must describe the same dependencies before submission.
+- Both graphs must describe the same dependencies before submission. Schema-3
+  member roots must agree with exact occurrence directness and attribution.
 - Version, tree, and SBOM commands receive only path, locale, and temporary-file
   variables. Validation receives repository credentials but no GitHub token.
 - All public diagnostics are control-stripped, bounded, and redacted before

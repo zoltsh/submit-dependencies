@@ -17,9 +17,16 @@ describe('Zolt process adapter', () => {
         })).rejects.toThrow('ZOLT-PROCESS-001: fixture command failed: : :warning: : first second ***');
     });
 
-    it('keeps normal analysis minimal and strips GitHub tokens from validation', () => {
+    it('keeps normal analysis minimal and strips every GitHub bearer channel from validation', () => {
         const source = {
-            GITHUB_TOKEN: 'secret', HOME: '/home', MAVEN_TOKEN: 'maven', PATH: '/bin', SAME: 'secret',
+            ACTIONS_CACHE_TOKEN: 'cache-bearer',
+            ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'oidc-bearer',
+            ACTIONS_ID_TOKEN_REQUEST_URL: 'https://oidc.example/token',
+            GITHUB_TOKEN: 'secret',
+            HOME: '/home',
+            MAVEN_TOKEN: 'maven',
+            PATH: '/bin',
+            SAME: 'secret',
         };
         expect(minimalZoltEnvironment(source)).toEqual({ PATH: '/bin' });
         expect(validationEnvironment(source, 'secret')).toEqual({ HOME: '/home', MAVEN_TOKEN: 'maven', PATH: '/bin' });

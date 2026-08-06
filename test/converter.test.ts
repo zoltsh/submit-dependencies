@@ -211,7 +211,16 @@ describe('pure dependency converter', () => {
         })).toThrow('root Maven identities disagree');
     });
 
-    it.each(['', '/zolt.lock', 'nested\\zolt.lock', 'nested/../zolt.lock'])('rejects unsafe manifest path %j', (manifestPath) => {
+    it.each([
+        '',
+        '/zolt.lock',
+        './zolt.lock',
+        'nested//zolt.lock',
+        'nested/./zolt.lock',
+        'nested\\zolt.lock',
+        'nested/../zolt.lock',
+        'nested/\nzolt.lock',
+    ])('rejects unsafe manifest path %j', (manifestPath) => {
         expect(() => convert({
             bom: projectBom([], {}), manifestPath, purlPolicy: PRESERVE_ZOLT_PURLS, tree: projectTree([]),
         })).toThrow('ZOLT-GRAPH-013');
@@ -318,6 +327,67 @@ describe('pure dependency converter', () => {
         const result = convert({ bom, manifestPath: 'zolt.lock', purlPolicy: PRESERVE_ZOLT_PURLS, tree });
 
         expect(result.dependencies.get(tool)).toMatchObject({ relationship: 'indirect', scope: 'development' });
+    });
+
+    it('requires exact member-root evidence for schema-3 directness and attribution', () => {
+        const external = purl('org.example', 'a', '1.0.0');
+        const ordinaryEdge = 'org.example:a:1.0.0:jar:compile';
+        const rootedBom = workspaceBom([component(external)], {
+            [purl('com.example', 'api', '0.1.0')]: [external],
+            [external]: [],
+        });
+        const indirectRoot = workspaceTree([
+            { id: 'org.example:a', version: '1.0.0', scope: 'compile', direct: false, members: ['apps/api'] },
+        ], { 'apps/api': [ordinaryEdge], 'modules/core': [] });
+        expect(() => convert({
+            bom: rootedBom,
+            manifestPath: 'zolt.lock',
+            purlPolicy: PRESERVE_ZOLT_PURLS,
+            tree: indirectRoot,
+        })).toThrow(/ZOLT-GRAPH-017.*indirect non-tooling/u);
+
+        const missingDirectRoot = workspaceTree([
+            { id: 'org.example:a', version: '1.0.0', scope: 'compile', direct: true, members: ['apps/api'] },
+        ], { 'apps/api': [], 'modules/core': [] });
+        expect(() => convert({
+            bom: workspaceBom([component(external)], { [external]: [] }),
+            manifestPath: 'zolt.lock',
+            purlPolicy: PRESERVE_ZOLT_PURLS,
+            tree: missingDirectRoot,
+        })).toThrow(/ZOLT-GRAPH-017.*absent from every member root/u);
+
+        const tool = purl('org.example', 'tool', '1.0.0');
+        const unattributedToolRoot = workspaceTree([
+            { id: 'org.example:tool', version: '1.0.0', scope: 'tool-coverage', direct: false, members: [] },
+        ], {
+            'apps/api': ['org.example:tool:1.0.0:jar:tool-coverage'],
+            'modules/core': [],
+        });
+        expect(() => convert({
+            bom: workspaceBom([component(tool)], {
+                [purl('com.example', 'api', '0.1.0')]: [tool],
+                [tool]: [],
+            }),
+            manifestPath: 'zolt.lock',
+            purlPolicy: PRESERVE_ZOLT_PURLS,
+            tree: unattributedToolRoot,
+        })).toThrow(/ZOLT-GRAPH-017.*does not attribute itself/u);
+    });
+
+    it('requires exact five-field dependency edges in schema 3', () => {
+        const external = purl('org.example', 'a', '1.0.0');
+        const tree = workspaceTree([
+            { id: 'org.example:a', version: '1.0.0', scope: 'compile', direct: true, members: ['apps/api'] },
+        ], { 'apps/api': ['org.example:a:1.0.0'], 'modules/core': [] });
+        expect(() => convert({
+            bom: workspaceBom([component(external)], {
+                [purl('com.example', 'api', '0.1.0')]: [external],
+                [external]: [],
+            }),
+            manifestPath: 'zolt.lock',
+            purlPolicy: PRESERVE_ZOLT_PURLS,
+            tree,
+        })).toThrow(/ZOLT-GRAPH-011.*exactly five fields/u);
     });
 
     it('rejects same-count workspace identity swaps, member-edge mismatches, and unreachable packages', () => {

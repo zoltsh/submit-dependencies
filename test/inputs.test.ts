@@ -41,7 +41,18 @@ describe('inputs', () => {
             'manifest-path': 'services/old/zolt.lock',
             state: 'clear',
         }))).toMatchObject({ manifestPath: 'services/old/zolt.lock', state: 'clear' });
-        for (const manifestPath of ['', '/zolt.lock', '../zolt.lock', 'services\\zolt.lock', 'pom.xml']) {
+        for (const manifestPath of [
+            '',
+            '/zolt.lock',
+            '../zolt.lock',
+            './zolt.lock',
+            'services/./zolt.lock',
+            'services//zolt.lock',
+            'services\\zolt.lock',
+            'services/\nzolt.lock',
+            'zolt.lock\n',
+            'pom.xml',
+        ]) {
             expect(() => readInputs(reader({
                 'github-token': 'secret',
                 'manifest-path': manifestPath,

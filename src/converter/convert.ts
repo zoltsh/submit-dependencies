@@ -8,7 +8,7 @@ import {
 } from '../contracts/tree';
 import { type ArtifactIdentity, artifactKey, graphError, parsePackageId, parseVariant, treeNodeKey } from './identity';
 import { normalizeForGitHub, type PurlPolicy } from './purl-policy';
-import { isZoltManifestPath } from '../manifest-path';
+import { parseZoltManifestPath } from '../manifest-path';
 
 export interface ConvertedDependency {
     readonly dependencies: readonly string[];
@@ -63,7 +63,7 @@ interface Accumulator {
 }
 
 export function convert(input: ConvertInput): ConvertedManifest {
-    validateManifestPath(input.manifestPath);
+    const manifestPath = validateManifestPath(input.manifestPath);
     const tree = decodeTree(input.tree);
     const bom = decodeCycloneDx(input.bom);
     const firstParty = firstPartyComponents(tree, bom);
@@ -102,8 +102,8 @@ export function convert(input: ConvertInput): ConvertedManifest {
         dependencies,
         ...tree.lockVersion === undefined ? {} : { lockVersion: tree.lockVersion },
         mode: tree.mode,
-        name: input.manifestPath,
-        sourceLocation: input.manifestPath,
+        name: manifestPath,
+        sourceLocation: manifestPath,
         statistics,
         treeSchema: tree.schemaVersion,
     };
@@ -238,6 +238,7 @@ function treeDependencyGraph(
     );
     if (tree.mode === 'workspace') {
         const root = mapValue(graph, ROOT_GRAPH_NODE, 'Missing workspace root graph node.');
+        const rootedOccurrences: Set<string> = new Set();
         for (const memberPurl of firstParty.purlByPath.values()) root.add(memberPurl);
         for (const member of tree.workspaceMembers) {
             const memberPurl = mapValue(
@@ -246,12 +247,33 @@ function treeDependencyGraph(
                 `Missing member mapping for ${member.path}.`,
             );
             for (const edge of member.dependencies) {
-                const target = resolveEdge(edge, tree.packages, nodes);
+                const target = resolveEdge(edge, tree.schemaVersion, tree.packages, nodes);
                 const targetMapping = mapValue(mappings, target.nodeKey, `Missing package mapping for ${target.coordinate}.`);
+                if (!target.members.includes(member.path)) {
+                    throw graphError(
+                        'ZOLT-GRAPH-017',
+                        `Workspace member ${member.path} roots ${edge}, but that occurrence does not attribute itself to the member.`,
+                    );
+                }
+                if (!target.direct && !injectedToolingScope(target.scope)) {
+                    throw graphError(
+                        'ZOLT-GRAPH-017',
+                        `Workspace member ${member.path} roots indirect non-tooling occurrence ${edge}.`,
+                    );
+                }
+                rootedOccurrences.add(target.nodeKey);
                 if (memberPurl === targetMapping.purl) {
                     throw graphError('ZOLT-GRAPH-010', `Workspace member ${member.path} has a self-edge ${edge}.`);
                 }
                 mapValue(graph, memberPurl, `Missing tree graph node for ${memberPurl}.`).add(targetMapping.purl);
+            }
+        }
+        for (const pkg of tree.packages) {
+            if (pkg.direct && !rootedOccurrences.has(pkg.nodeKey)) {
+                throw graphError(
+                    'ZOLT-GRAPH-017',
+                    `Direct workspace occurrence ${pkg.coordinate}:${pkg.scope} is absent from every member root.`,
+                );
             }
         }
     }
@@ -261,7 +283,7 @@ function treeDependencyGraph(
             mapValue(graph, ROOT_GRAPH_NODE, 'Missing project root graph node.').add(sourceMapping.purl);
         }
         for (const edge of source.dependencies) {
-            const target = resolveEdge(edge, tree.packages, nodes);
+            const target = resolveEdge(edge, tree.schemaVersion, tree.packages, nodes);
             const targetMapping = mapValue(mappings, target.nodeKey, `Missing package mapping for ${target.coordinate}.`);
             if (!targetMapping.firstParty && !accumulators.has(targetMapping.purl)) {
                 throw graphError('ZOLT-GRAPH-009', `Dependency edge ${edge} does not target a submitted package.`);
@@ -281,10 +303,14 @@ function treeDependencyGraph(
 
 function resolveEdge(
     edge: string,
+    schemaVersion: 1 | 3,
     packages: readonly TreePackage[],
     nodes: ReadonlyMap<string, TreePackage>,
 ): TreePackage {
     const parts = edge.split(':');
+    if (schemaVersion === 3 && parts.length !== 5) {
+        throw graphError('ZOLT-GRAPH-011', `Schema-3 dependency edge ${edge} must contain exactly five fields.`);
+    }
     if (parts.length < 3 || parts.length > 5 || parts.some((part) => part === '')) {
         throw graphError('ZOLT-GRAPH-011', `Malformed dependency edge ${edge}.`);
     }
@@ -386,10 +412,20 @@ function runtimeScope(scope: ZoltScope): boolean {
     return scope === 'compile' || scope === 'runtime' || scope === 'provided';
 }
 
-function validateManifestPath(value: string): void {
-    if (!isZoltManifestPath(value)) {
+function injectedToolingScope(scope: ZoltScope): boolean {
+    return scope === 'tool-coverage'
+        || scope === 'tool-exec'
+        || scope === 'tool-openapi'
+        || scope === 'tool-protobuf'
+        || scope === 'tool-spring-aot';
+}
+
+function validateManifestPath(value: string): string {
+    const manifestPath = parseZoltManifestPath(value);
+    if (manifestPath === undefined) {
         throw graphError('ZOLT-GRAPH-013', `Manifest path ${JSON.stringify(value)} is not repository-relative.`);
     }
+    return manifestPath;
 }
 
 function edgePart(parts: readonly string[], index: number, edge: string): string {

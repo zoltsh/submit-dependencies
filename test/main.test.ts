@@ -76,6 +76,9 @@ function happyDependencies(core: ActionCore): ActionDependencies & { cleanup: Re
         }),
         resolveSubmissionContext: () => submissionContext,
         submit: async () => await Promise.resolve({ id: 456, result: 'SUCCESS' }),
+        verifyRepository: async () => {
+            await Promise.resolve();
+        },
         writeSummary: async () => {
             await Promise.resolve();
         },
@@ -87,8 +90,9 @@ describe('action adapter', () => {
         const core = actionCore({ 'github-token': 'super-secret' });
         const dependencies = happyDependencies(core);
         const submit = vi.fn(dependencies.submit);
+        const verifyRepository = vi.fn(dependencies.verifyRepository);
         const writeSummary = vi.fn(dependencies.writeSummary);
-        await runAction({ ...dependencies, submit, writeSummary });
+        await runAction({ ...dependencies, submit, verifyRepository, writeSummary });
 
         expect(core.secrets).toEqual(['super-secret', 'non-github-secret']);
         expect(core.outputs).toEqual(new Map<string, unknown>([
@@ -99,6 +103,12 @@ describe('action adapter', () => {
         expect(submit).toHaveBeenCalledWith('super-secret', submissionContext, expect.objectContaining({
             scanned: '2026-08-05T00:00:00.000Z', version: 0,
         }));
+        expect(verifyRepository).toHaveBeenCalledWith({
+            expectedSha: submissionContext.sha,
+            manifestPath: 'zolt.lock',
+            state: 'submit',
+            workspace: '/repo',
+        }, { environment: dependencies.environment });
         expect(writeSummary).toHaveBeenCalledWith(expect.stringContaining('| Snapshot ID | 456 |'));
         expect(core.infoMock).toHaveBeenCalledWith('Zolt warning: one warning');
     });
@@ -113,8 +123,9 @@ describe('action adapter', () => {
         const install = vi.fn(dependencies.install);
         const capture = vi.fn(dependencies.capture);
         const submit = vi.fn(dependencies.submit);
+        const verifyRepository = vi.fn(dependencies.verifyRepository);
         const writeSummary = vi.fn(dependencies.writeSummary);
-        await runAction({ ...dependencies, capture, install, submit, writeSummary });
+        await runAction({ ...dependencies, capture, install, submit, verifyRepository, writeSummary });
 
         expect(install).not.toHaveBeenCalled();
         expect(capture).not.toHaveBeenCalled();
@@ -123,6 +134,12 @@ describe('action adapter', () => {
             ['snapshot-id', 456], ['dependency-count', 0], ['zolt-version', ''],
         ]));
         expect(submit).toHaveBeenCalledWith('super-secret', submissionContext, expect.any(Object));
+        expect(verifyRepository).toHaveBeenCalledWith({
+            expectedSha: submissionContext.sha,
+            manifestPath: 'services/removed/zolt.lock',
+            state: 'clear',
+            workspace: '/repo',
+        }, { environment: dependencies.environment });
         const submitted = submit.mock.calls.at(0)?.[2];
         expect(submitted?.manifests['services/removed/zolt.lock']?.resolved).toEqual({});
         expect(writeSummary).toHaveBeenCalledWith(expect.stringContaining('Zolt dependency snapshot cleared'));

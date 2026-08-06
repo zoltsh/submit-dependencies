@@ -22,4 +22,10 @@ describe('errors', () => {
         );
         expect(publicText('x'.repeat(5000))).toHaveLength(4096);
     });
+
+    it('redacts secrets reconstructed by ANSI and control normalization', () => {
+        expect(publicText('cloud-\u001B[31msecret\u001B[0m', ['cloud-secret'])).toBe('***');
+        expect(publicText('cloud-\tsecret', ['cloud- secret'])).toBe('***');
+        expect(publicText('safe', [''])).toBe('safe');
+    });
 });

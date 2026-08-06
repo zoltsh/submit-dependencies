@@ -3,6 +3,7 @@ import * as core from '@actions/core';
 import { convert, type ConvertedManifest } from './converter/convert';
 import { PRESERVE_ZOLT_PURLS } from './converter/purl-policy';
 import { resolveExecutionContext } from './environment/context';
+import { verifyRepositoryState } from './environment/repository-state';
 import { SubmitDependenciesError } from './errors';
 import { readGitHubSubmissionContext } from './github/context';
 import { buildClearSnapshot, buildSnapshot } from './github/snapshot';
@@ -33,6 +34,7 @@ export interface ActionDependencies {
     readonly resolveContext?: typeof resolveExecutionContext;
     readonly resolveSubmissionContext?: typeof readGitHubSubmissionContext;
     readonly submit?: typeof submitSnapshot;
+    readonly verifyRepository?: typeof verifyRepositoryState;
     readonly writeSummary?: (markdown: string) => Promise<void>;
 }
 
@@ -60,6 +62,12 @@ export async function runAction(dependencies: ActionDependencies = {}): Promise<
             if (manifestPath === undefined) {
                 throw new SubmitDependenciesError('ZOLT-INPUT-009', 'manifest-path is required when state is clear.');
             }
+            await (dependencies.verifyRepository ?? verifyRepositoryState)({
+                expectedSha: submissionContext.sha,
+                manifestPath,
+                state: inputs.state,
+                workspace: context.repository.workspace,
+            }, { environment });
             actionCore.info(`Validated ${manifestPath} tombstone on ${context.event.defaultBranch}.`);
             const snapshot = buildClearSnapshot({
                 context: submissionContext,
@@ -91,6 +99,12 @@ export async function runAction(dependencies: ActionDependencies = {}): Promise<
             context.repository,
             { environment },
         );
+        await (dependencies.verifyRepository ?? verifyRepositoryState)({
+            expectedSha: submissionContext.sha,
+            manifestPath: machine.manifestPath,
+            state: inputs.state,
+            workspace: context.repository.workspace,
+        }, { environment });
         const manifest = (dependencies.convertGraph ?? convert)({
             bom: machine.bom,
             manifestPath: machine.manifestPath,

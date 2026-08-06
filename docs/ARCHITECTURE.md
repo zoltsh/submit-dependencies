@@ -35,11 +35,13 @@ for one explicit manifest path. It never installs or runs Zolt.
 
 ## Rules
 
-1. Repository paths stay inside `GITHUB_WORKSPACE`.
+1. Repository paths stay inside `GITHUB_WORKSPACE`; submitted locks are tracked,
+   unmodified files at `GITHUB_SHA`.
 2. The action runs one exact Zolt version with one checksum per target.
 3. Tree data supplies scope and directness. CycloneDX supplies Maven PURLs and
    workspace context.
-4. Tree and CycloneDX graphs must agree.
+4. Tree and CycloneDX graphs must agree, including exact schema-3 member roots,
+   occurrence directness, and member attribution.
 5. Direct wins over indirect. Runtime wins over development.
 6. Classifiers and non-default artifact types stay distinct.
 7. Workspace members are never submitted as external dependencies.
