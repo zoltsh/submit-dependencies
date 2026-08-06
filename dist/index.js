@@ -39624,7 +39624,7 @@ async function submitSnapshot(token, context, snapshot, client = createSnapshotC
         reference = await client.getReference(context.owner, context.repository, branchRef);
     }
     catch (error) {
-        throw sanitizedGitHubError(error, token, 'GET', '/git/ref');
+        throw sanitizedGitHubError(error, 'GET', '/git/ref');
     }
     if (reference.data.object.type !== 'commit'
         || !/^[a-fA-F0-9]{40}$/u.test(reference.data.object.sha)) {
@@ -39633,23 +39633,24 @@ async function submitSnapshot(token, context, snapshot, client = createSnapshotC
     if (reference.data.object.sha.toLowerCase() !== context.sha) {
         throw new SubmitDependenciesError('ZOLT-GITHUB-003', 'The default branch advanced after this run started. Rerun the workflow; no stale dependency snapshot was submitted.');
     }
+    let response;
     try {
         const parameters = {
             ...snapshot,
             owner: context.owner,
             repo: context.repository,
         };
-        const response = await client.createSnapshot(parameters);
-        if (!Number.isSafeInteger(response.data.id) || response.data.id < 1) {
-            throw new Error('GitHub returned an invalid snapshot ID.');
-        }
-        return { id: response.data.id, result: response.data.result };
+        response = await client.createSnapshot(parameters);
     }
     catch (error) {
         if (error instanceof SubmitDependenciesError)
             throw error;
-        throw sanitizedGitHubError(error, token, 'POST', '/dependency-graph/snapshots');
+        throw sanitizedGitHubError(error, 'POST', '/dependency-graph/snapshots');
     }
+    if (!Number.isSafeInteger(response.data.id) || response.data.id < 1) {
+        throw new SubmitDependenciesError('ZOLT-GITHUB-002', 'GitHub returned an invalid snapshot ID.');
+    }
+    return { id: response.data.id, result: response.data.result };
 }
 function createSnapshotClient(token) {
     const octokit = getOctokit(token, {
@@ -39669,18 +39670,16 @@ function createSnapshotClient(token) {
         }),
     };
 }
-function sanitizedGitHubError(error, token, expectedMethod, endpoint) {
+function sanitizedGitHubError(error, expectedMethod, endpoint) {
     const value = typeof error === 'object' && error !== null ? error : {};
     const status = number(value.status) ?? number(value.response?.status);
     const requestId = safeHeader(value.response?.headers, 'x-github-request-id');
     const method = safeMethod(value.request?.method) ?? expectedMethod;
-    const message = safeMessage(value.message, token);
     const details = [
         status === undefined ? undefined : `status ${status.toString()}`,
         method,
         endpoint,
         requestId === undefined ? undefined : `request ${requestId}`,
-        message,
     ].filter((part) => part !== undefined);
     return new SubmitDependenciesError('ZOLT-GITHUB-002', `GitHub API request failed (${details.join(', ')}). Verify contents: write permission and the repository dependency graph settings.`);
 }
@@ -39693,17 +39692,6 @@ function safeHeader(headers, name) {
 }
 function safeMethod(value) {
     return typeof value === 'string' && /^[A-Z]{3,10}$/u.test(value) ? value : undefined;
-}
-function safeMessage(value, token) {
-    if (typeof value !== 'string')
-        return undefined;
-    const normalized = value.replace(/[\r\n\t]/gu, ' ').replace(/\s+/gu, ' ').trim();
-    if (normalized === ''
-        || normalized.length > 200
-        || normalized.includes(token)
-        || /token|authorization|bearer/iu.test(normalized))
-        return undefined;
-    return normalized;
 }
 
 ;// CONCATENATED MODULE: ./src/github/summary.ts

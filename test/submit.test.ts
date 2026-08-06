@@ -68,7 +68,7 @@ describe('GitHub snapshot submission', () => {
         [422, 'Validation Failed'],
         [429, 'rate limit exceeded'],
         [500, 'server error'],
-    ])('reports HTTP %i with a bounded safe message', async (status, message) => {
+    ])('reports HTTP %i without exposing the response message', async (status, message) => {
         const client: SnapshotClient = {
             createSnapshot: async () => {
                 await Promise.resolve();
@@ -78,9 +78,14 @@ describe('GitHub snapshot submission', () => {
                 data: { object: { sha: context.sha, type: 'commit' } },
             }),
         };
-        await expect(submitSnapshot('masked-token', context, snapshot, client)).rejects.toThrow(
-            `status ${status.toString()}, POST, /dependency-graph/snapshots, ${message}`,
-        );
+        let failure = '';
+        try {
+            await submitSnapshot('masked-token', context, snapshot, client);
+        } catch (error) {
+            failure = String(error);
+        }
+        expect(failure).toContain(`status ${status.toString()}, POST, /dependency-graph/snapshots`);
+        expect(failure).not.toContain(message);
     });
 
     it('sanitizes network interruptions and messages that equal the token', async () => {
@@ -93,9 +98,14 @@ describe('GitHub snapshot submission', () => {
                 data: { object: { sha: context.sha, type: 'commit' } },
             }),
         };
-        await expect(submitSnapshot('masked-token', context, snapshot, network)).rejects.toThrow(
-            'POST, /dependency-graph/snapshots, connect ECONNRESET api.github.com',
-        );
+        let networkFailure = '';
+        try {
+            await submitSnapshot('masked-token', context, snapshot, network);
+        } catch (error) {
+            networkFailure = String(error);
+        }
+        expect(networkFailure).toContain('POST, /dependency-graph/snapshots');
+        expect(networkFailure).not.toContain('connect ECONNRESET api.github.com');
         const echo: SnapshotClient = {
             createSnapshot: async () => {
                 await Promise.resolve();
@@ -136,7 +146,7 @@ describe('GitHub snapshot submission', () => {
             },
         };
         await expect(submitSnapshot('token', context, snapshot, client)).rejects.toThrow(
-            'status 403, GET, /git/ref, Resource not accessible by integration',
+            'status 403, GET, /git/ref',
         );
     });
 });
