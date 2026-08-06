@@ -19,6 +19,7 @@ export interface InstalledZolt {
 
 export interface InstallDependencies {
     readonly downloader?: Downloader;
+    readonly environment?: NodeJS.ProcessEnv;
     readonly temporaryRoot?: string;
     readonly verifyVersion?: typeof verifyZoltVersion;
 }
@@ -35,7 +36,8 @@ export async function installZolt(target: ReleaseTarget, dependencies: InstallDe
     if (release.archive !== expectedArchive || release.archiveUrl !== expectedUrl || !/^[0-9a-f]{64}$/u.test(release.sha256)) {
         throw new SubmitDependenciesError('ZOLT-INSTALL-013', `Embedded release metadata for ${target} is invalid.`);
     }
-    const temporaryBase = dependencies.temporaryRoot ?? process.env.RUNNER_TEMP ?? tmpdir();
+    const environment = dependencies.environment ?? {};
+    const temporaryBase = dependencies.temporaryRoot ?? environment.RUNNER_TEMP ?? tmpdir();
     await mkdir(temporaryBase, { recursive: true });
     const work = await mkdtemp(join(temporaryBase, 'zolt-dependency-submission-'));
     const downloader = dependencies.downloader ?? new ArchiveDownloader();
@@ -52,7 +54,7 @@ export async function installZolt(target: ReleaseTarget, dependencies: InstallDe
         const expectedRoot = release.archive.slice(0, -'.tar.gz'.length);
         await inspectArchive(archive, expectedRoot);
         const binary = await extractArchive(archive, resolve(work, 'extract'), expectedRoot);
-        await (dependencies.verifyVersion ?? verifyZoltVersion)(binary, ZOLT_VERSION);
+        await (dependencies.verifyVersion ?? verifyZoltVersion)(binary, ZOLT_VERSION, environment);
         retained = true;
         return {
             binary,

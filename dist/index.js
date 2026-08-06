@@ -33803,23 +33803,6 @@ class SubmitDependenciesError extends Error {
         this.name = 'SubmitDependenciesError';
     }
 }
-function errorMessage(error, debug = false) {
-    if (!(error instanceof Error))
-        return String(error);
-    if (debug && error.stack !== undefined)
-        return error.stack;
-    const messages = [];
-    const seen = new Set();
-    let current = error;
-    while (current instanceof Error && messages.length < 3 && !seen.has(current)) {
-        seen.add(current);
-        const message = current.message || current.name;
-        if (!messages.includes(message))
-            messages.push(message);
-        current = current.cause;
-    }
-    return messages.join(': ');
-}
 
 ;// CONCATENATED MODULE: ./src/contracts/decode.ts
 
@@ -39742,15 +39725,107 @@ function assertResponse(message, maximumBytes) {
 const external_node_child_process_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:child_process");
 // EXTERNAL MODULE: external "node:util"
 var external_node_util_ = __nccwpck_require__(7975);
+;// CONCATENATED MODULE: ./src/public-output.ts
+const MAX_PUBLIC_MESSAGE_CHARACTERS = 4096;
+const MAX_PUBLIC_SAMPLE_BYTES = 64 * 1024;
+const SENSITIVE_NAME = /(?:ACCESS_KEY|API_KEY|AUTH|CREDENTIAL|PASSWORD|PASSWD|PRIVATE_KEY|SECRET|TOKEN)/iu;
+const escapeCharacter = String.fromCodePoint(27);
+const bellCharacter = String.fromCodePoint(7);
+const ANSI_ESCAPE = new RegExp(`${escapeCharacter}(?:\\][^${bellCharacter}]*(?:${bellCharacter}|${escapeCharacter}\\\\)|\\[[0-?]*[ -/]*[@-~])`, 'gu');
+function registeredSecrets(environment, explicit = []) {
+    const values = new Set();
+    for (const value of explicit)
+        addSecret(values, value);
+    for (const [name, value] of Object.entries(environment)) {
+        if (SENSITIVE_NAME.test(name))
+            addSecret(values, value);
+    }
+    return [...values].sort((left, right) => right.length - left.length);
+}
+function publicBufferText(value, secrets, limit = MAX_PUBLIC_MESSAGE_CHARACTERS) {
+    return publicText(value.subarray(0, MAX_PUBLIC_SAMPLE_BYTES).toString('utf8'), secrets, limit);
+}
+function publicErrorMessage(error, secrets = []) {
+    const value = error instanceof Error ? error.message || error.name : String(error);
+    return publicText(value, secrets);
+}
+function publicText(value, secrets = [], limit = MAX_PUBLIC_MESSAGE_CHARACTERS) {
+    let safe = value;
+    for (const secret of secrets)
+        safe = safe.split(secret).join('***');
+    safe = safe
+        .replace(ANSI_ESCAPE, '')
+        .split('')
+        .map((character) => isControlCharacter(character) ? ' ' : character)
+        .join('')
+        .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/giu, '$1***:***@')
+        .replace(/([?&](?:access_key|api_key|auth|credential|password|secret|token)=)[^&\s]+/giu, '$1***')
+        .replace(/::/gu, ': :')
+        .replace(/\s+/gu, ' ')
+        .trim();
+    if (safe.length <= limit)
+        return safe;
+    return `${safe.slice(0, Math.max(0, limit - 1))}…`;
+}
+function addSecret(values, value) {
+    if (value !== undefined && value.length >= 4)
+        values.add(value);
+}
+function isControlCharacter(value) {
+    const codePoint = value.codePointAt(0);
+    return codePoint !== undefined && (codePoint <= 31 || codePoint >= 127 && codePoint <= 159);
+}
+
+;// CONCATENATED MODULE: ./src/zolt/process.ts
+
+
+
+
+const execute = (0,external_node_util_.promisify)(external_node_child_process_namespaceObject.execFile);
+const MAX_MACHINE_DOCUMENT_BYTES = 64 * 1024 * 1024;
+async function runZolt(binary, arguments_, options) {
+    try {
+        const result = await execute(binary, [...arguments_], {
+            cwd: options.cwd,
+            encoding: 'buffer',
+            env: options.environment,
+            maxBuffer: MAX_MACHINE_DOCUMENT_BYTES,
+            timeout: 120_000,
+            windowsHide: true,
+        });
+        return { stderr: result.stderr, stdout: result.stdout };
+    }
+    catch (error) {
+        const failure = error;
+        const stderr = safeStderr(failure.stderr, registeredSecrets(options.environment));
+        throw new SubmitDependenciesError('ZOLT-PROCESS-001', `${options.label} failed${stderr === '' ? '.' : `: ${stderr}`}`, { cause: error });
+    }
+}
+function minimalZoltEnvironment(source) {
+    const allowed = ['LANG', 'LC_ALL', 'PATH', 'RUNNER_TEMP', 'TMPDIR'];
+    return Object.fromEntries(allowed.flatMap((key) => source[key] === undefined ? [] : [[key, source[key]]]));
+}
+function validationEnvironment(source, githubToken) {
+    const denied = new Set(['ACTIONS_RUNTIME_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'INPUT_GITHUB-TOKEN']);
+    return Object.fromEntries(Object.entries(source).filter(([key, value]) => !denied.has(key) && value !== githubToken));
+}
+function safeStderr(value, secrets) {
+    if (value === undefined)
+        return '';
+    return Buffer.isBuffer(value) ? publicBufferText(value, secrets) : publicText(value, secrets);
+}
+
 ;// CONCATENATED MODULE: ./src/install/verify.ts
 
 
 
+
 const run = (0,external_node_util_.promisify)(external_node_child_process_namespaceObject.execFile);
-async function verifyZoltVersion(binary, expectedVersion) {
+async function verifyZoltVersion(binary, expectedVersion, environment) {
     try {
         const result = await run(binary, ['--version'], {
             encoding: 'utf8',
+            env: minimalZoltEnvironment(environment),
             maxBuffer: 1024 * 1024,
             timeout: 10_000,
             windowsHide: true,
@@ -39782,7 +39857,8 @@ async function installZolt(target, dependencies = {}) {
     if (release.archive !== expectedArchive || release.archiveUrl !== expectedUrl || !/^[0-9a-f]{64}$/u.test(release.sha256)) {
         throw new SubmitDependenciesError('ZOLT-INSTALL-013', `Embedded release metadata for ${target} is invalid.`);
     }
-    const temporaryBase = dependencies.temporaryRoot ?? process.env.RUNNER_TEMP ?? (0,external_node_os_namespaceObject.tmpdir)();
+    const environment = dependencies.environment ?? {};
+    const temporaryBase = dependencies.temporaryRoot ?? environment.RUNNER_TEMP ?? (0,external_node_os_namespaceObject.tmpdir)();
     await (0,promises_namespaceObject.mkdir)(temporaryBase, { recursive: true });
     const work = await (0,promises_namespaceObject.mkdtemp)((0,external_node_path_namespaceObject.join)(temporaryBase, 'zolt-dependency-submission-'));
     const downloader = dependencies.downloader ?? new ArchiveDownloader();
@@ -39796,7 +39872,7 @@ async function installZolt(target, dependencies = {}) {
         const expectedRoot = release.archive.slice(0, -'.tar.gz'.length);
         await inspectArchive(archive, expectedRoot);
         const binary = await extractArchive(archive, (0,external_node_path_namespaceObject.resolve)(work, 'extract'), expectedRoot);
-        await (dependencies.verifyVersion ?? verifyZoltVersion)(binary, ZOLT_VERSION);
+        await (dependencies.verifyVersion ?? verifyZoltVersion)(binary, ZOLT_VERSION, environment);
         retained = true;
         return {
             binary,
@@ -39829,45 +39905,6 @@ function resolveTarget(platform, architecture) {
         throw new SubmitDependenciesError('ZOLT-INSTALL-001', `zoltsh/submit-dependencies v${ACTION_VERSION} does not support Windows runners. Use a Linux or macOS runner.`);
     }
     throw new SubmitDependenciesError('ZOLT-INSTALL-002', `Unsupported runner platform ${platform}/${architecture}. Supported targets: linux-x64, linux-arm64, macos-x64, macos-arm64.`);
-}
-
-;// CONCATENATED MODULE: ./src/zolt/process.ts
-
-
-
-const execute = (0,external_node_util_.promisify)(external_node_child_process_namespaceObject.execFile);
-const MAX_MACHINE_DOCUMENT_BYTES = 64 * 1024 * 1024;
-async function runZolt(binary, arguments_, options) {
-    try {
-        const result = await execute(binary, [...arguments_], {
-            cwd: options.cwd,
-            encoding: 'buffer',
-            env: options.environment,
-            maxBuffer: MAX_MACHINE_DOCUMENT_BYTES,
-            timeout: 120_000,
-            windowsHide: true,
-        });
-        return { stderr: result.stderr, stdout: result.stdout };
-    }
-    catch (error) {
-        const failure = error;
-        const stderr = safeStderr(failure.stderr);
-        throw new SubmitDependenciesError('ZOLT-PROCESS-001', `${options.label} failed${stderr === '' ? '.' : `: ${stderr}`}`, { cause: error });
-    }
-}
-function normalAnalysisEnvironment(source) {
-    const allowed = ['HOME', 'LANG', 'LC_ALL', 'PATH', 'RUNNER_TEMP', 'TMPDIR'];
-    return Object.fromEntries(allowed.flatMap((key) => source[key] === undefined ? [] : [[key, source[key]]]));
-}
-function validationEnvironment(source, githubToken) {
-    const denied = new Set(['ACTIONS_RUNTIME_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'INPUT_GITHUB-TOKEN']);
-    return Object.fromEntries(Object.entries(source).filter(([key, value]) => !denied.has(key) && value !== githubToken));
-}
-function safeStderr(value) {
-    if (value === undefined)
-        return '';
-    const text = Buffer.isBuffer(value) ? value.toString('utf8') : value;
-    return text.replace(/[\r\n]+/gu, ' ').trim().slice(0, 4096);
 }
 
 ;// CONCATENATED MODULE: ./src/zolt/outputs.ts
@@ -40006,8 +40043,10 @@ function contained(root, candidate) {
 
 
 
+
 async function captureZoltOutputs(binary, inputs, repository, dependencies = {}) {
     const environment = dependencies.environment ?? process.env;
+    const secrets = registeredSecrets(environment, [inputs.githubToken]);
     const selection = await (dependencies.select ?? selectZoltProject)(repository, inputs.workspace);
     const temporaryBase = dependencies.temporaryRoot ?? environment.RUNNER_TEMP ?? (0,external_node_os_namespaceObject.tmpdir)();
     await (0,promises_namespaceObject.mkdir)(temporaryBase, { mode: 0o700, recursive: true });
@@ -40024,7 +40063,7 @@ async function captureZoltOutputs(binary, inputs, repository, dependencies = {})
                 label: 'Zolt locked resolution validation',
             });
         }
-        const analysisEnvironment = normalAnalysisEnvironment(environment);
+        const analysisEnvironment = minimalZoltEnvironment(environment);
         const treeResult = await runner(binary, treeArguments(selection), {
             cwd: selection.root,
             environment: analysisEnvironment,
@@ -40044,7 +40083,7 @@ async function captureZoltOutputs(binary, inputs, repository, dependencies = {})
             mode: selection.mode,
             tree: parseMachineJson(treeResult.stdout, 'Zolt tree output'),
             warnings: [treeResult.stderr, bomResult.stderr]
-                .map((value) => value.toString('utf8').trim())
+                .map((value) => publicBufferText(value, secrets))
                 .filter((value) => value !== ''),
         };
     }
@@ -40056,7 +40095,7 @@ async function captureZoltOutputs(binary, inputs, repository, dependencies = {})
     }
     catch (cleanupError) {
         if (operationError !== undefined) {
-            throw new SubmitDependenciesError('ZOLT-CLEANUP-002', `${errorMessage(operationError)} Private analysis-directory cleanup also failed.`, { cause: cleanupError });
+            throw new SubmitDependenciesError('ZOLT-CLEANUP-002', `${publicErrorMessage(operationError, secrets)} Private analysis-directory cleanup also failed.`, { cause: cleanupError });
         }
         throw new SubmitDependenciesError('ZOLT-CLEANUP-002', 'Could not remove the private analysis directory.', {
             cause: cleanupError,
@@ -40065,7 +40104,7 @@ async function captureZoltOutputs(binary, inputs, repository, dependencies = {})
     if (operationError instanceof Error)
         throw operationError;
     if (operationError !== undefined) {
-        throw new SubmitDependenciesError('ZOLT-PROCESS-003', errorMessage(operationError));
+        throw new SubmitDependenciesError('ZOLT-PROCESS-003', publicErrorMessage(operationError, secrets));
     }
     if (result === undefined)
         throw new SubmitDependenciesError('ZOLT-PROCESS-002', 'Zolt analysis produced no result.');
@@ -40128,23 +40167,30 @@ function sbomArguments(selection, output, cacheRoot) {
 
 
 
+
 async function runAction(dependencies = {}) {
     const actionCore = dependencies.core ?? core_namespaceObject;
     const environment = dependencies.environment ?? process.env;
     let installed;
-    let token;
+    let secrets = registeredSecrets(environment);
+    const maskedSecrets = new Set();
     try {
         const inputs = readInputs(actionCore, (secret) => {
             actionCore.setSecret(secret);
+            maskedSecrets.add(secret);
         });
-        token = inputs.githubToken;
+        secrets = registeredSecrets(environment, [inputs.githubToken]);
+        for (const secret of secrets) {
+            if (!maskedSecrets.has(secret))
+                actionCore.setSecret(secret);
+        }
         const [context, submissionContext] = await Promise.all([
             (dependencies.resolveContext ?? resolveExecutionContext)(inputs, environment),
             Promise.resolve((dependencies.resolveSubmissionContext ?? readGitHubSubmissionContext)(environment)),
         ]);
         const target = resolveTarget(dependencies.platform ?? process.platform, dependencies.architecture ?? process.arch);
         actionCore.info(`Validated ${context.repository.relativeDirectory} on ${context.event.defaultBranch}; installing pinned Zolt for ${target}.`);
-        installed = await (dependencies.install ?? installZolt)(target);
+        installed = await (dependencies.install ?? installZolt)(target, { environment });
         actionCore.info(`Verified pinned Zolt ${installed.version} for ${installed.target}; SHA-256 ${installed.sha256}.`);
         const machine = await (dependencies.capture ?? captureZoltOutputs)(installed.binary, inputs, context.repository, { environment });
         const manifest = (dependencies.convertGraph ?? convert)({
@@ -40171,11 +40217,11 @@ async function runAction(dependencies = {}) {
             zoltVersion: installed.version,
         }));
         for (const warning of machine.warnings)
-            actionCore.info(`Zolt warning: ${warning}`);
+            actionCore.info(`Zolt warning: ${publicText(warning, secrets)}`);
         actionCore.info(`Submitted dependency snapshot ${submission.id.toString()} with ${manifest.statistics.externalDependencies.toString()} external dependencies.`);
     }
     catch (error) {
-        actionCore.setFailed(redact(errorMessage(error, environment.ACTIONS_STEP_DEBUG === 'true'), token));
+        actionCore.setFailed(publicErrorMessage(error, secrets));
     }
     finally {
         if (installed !== undefined) {
@@ -40183,7 +40229,7 @@ async function runAction(dependencies = {}) {
                 await installed.cleanup();
             }
             catch (error) {
-                actionCore.setFailed(`ZOLT-CLEANUP-001: Could not remove the private Zolt installation: ${errorMessage(error)}.`);
+                actionCore.setFailed(`ZOLT-CLEANUP-001: Could not remove the private Zolt installation: ${publicErrorMessage(error, secrets)}.`);
             }
         }
     }
@@ -40196,9 +40242,6 @@ function assertMode(capturedMode, manifest) {
 async function writeActionSummary(markdown) {
     summary.addRaw(markdown);
     await summary.write();
-}
-function redact(message, token) {
-    return token === undefined || token === '' ? message : message.split(token).join('***');
 }
 
 ;// CONCATENATED MODULE: ./src/index.ts

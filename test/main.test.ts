@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ConvertedManifest } from '../src/converter/convert';
+import { SubmitDependenciesError } from '../src/errors';
 import type { GitHubSubmissionContext } from '../src/github/context';
 import { runAction, type ActionCore, type ActionDependencies } from '../src/main';
 import type { InstalledZolt } from '../src/install/install-zolt';
@@ -65,6 +66,7 @@ function happyDependencies(core: ActionCore): ActionDependencies & { cleanup: Re
         cleanup,
         convertGraph: () => manifest(),
         core,
+        environment: { DEPLOY_PASSWORD: 'non-github-secret', PATH: '/bin' },
         install: async () => await Promise.resolve(installed),
         now: () => new Date('2026-08-05T00:00:00.000Z'),
         platform: 'linux',
@@ -88,7 +90,7 @@ describe('action adapter', () => {
         const writeSummary = vi.fn(dependencies.writeSummary);
         await runAction({ ...dependencies, submit, writeSummary });
 
-        expect(core.secrets).toEqual(['super-secret']);
+        expect(core.secrets).toEqual(['super-secret', 'non-github-secret']);
         expect(core.outputs).toEqual(new Map<string, unknown>([
             ['snapshot-id', 456], ['dependency-count', 1], ['zolt-version', '1.2.3'],
         ]));
@@ -107,10 +109,14 @@ describe('action adapter', () => {
             ...happyDependencies(core),
             capture: async () => {
                 await Promise.resolve();
-                throw new Error('failure contained super-secret');
+                throw new SubmitDependenciesError(
+                    'ZOLT-TEST-001',
+                    'failure contained super-secret and non-github-secret',
+                    { cause: new Error('raw command --password super-secret') },
+                );
             },
         });
-        expect(core.failed).toEqual(['failure contained ***']);
+        expect(core.failed).toEqual(['ZOLT-TEST-001: failure contained *** and ***']);
     });
 
     it('reports an empty token before creating any external adapters', async () => {
@@ -119,7 +125,7 @@ describe('action adapter', () => {
         expect(core.failed).toEqual([expect.stringContaining('ZOLT-INPUT-002')]);
     });
 
-    it('redacts tokens from debug stack traces and supports the real clock default', async () => {
+    it('does not expose unexpected debug stacks and supports the real clock default', async () => {
         const core = actionCore({ 'github-token': 'super-secret' });
         const dependencies = happyDependencies(core);
         Reflect.deleteProperty(dependencies, 'now');
@@ -133,6 +139,29 @@ describe('action adapter', () => {
         });
         expect(core.failed[0]).toContain('debug ***');
         expect(core.failed[0]).not.toContain('super-secret');
+        expect(core.failed[0]).not.toContain('at ');
+    });
+
+    it('sanitizes multiline, ANSI, workflow-command-shaped, and long warnings', async () => {
+        const core = actionCore({ 'github-token': 'super-secret' });
+        await runAction({
+            ...happyDependencies(core),
+            capture: async () => await Promise.resolve({
+                bom: {},
+                manifestPath: 'zolt.lock',
+                mode: 'project',
+                tree: {},
+                warnings: [`\u001B[31m::error:: first\nsecond non-github-secret ${'x'.repeat(5000)}`],
+            }),
+        });
+        const warning = core.infoMock.mock.calls
+            .map(([message]) => String(message))
+            .find((message) => message.startsWith('Zolt warning:'));
+        expect(warning).toBeDefined();
+        expect(warning).not.toContain('\u001B');
+        expect(warning).not.toContain('::error::');
+        expect(warning).not.toContain('non-github-secret');
+        expect(warning?.length).toBeLessThanOrEqual(4110);
     });
 
     it('fails closed when selected and emitted graph modes disagree', async () => {

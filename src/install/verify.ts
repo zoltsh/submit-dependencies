@@ -2,13 +2,19 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 import { SubmitDependenciesError } from '../errors';
+import { minimalZoltEnvironment } from '../zolt/process';
 
 const run = promisify(execFile);
 
-export async function verifyZoltVersion(binary: string, expectedVersion: string): Promise<void> {
+export async function verifyZoltVersion(
+    binary: string,
+    expectedVersion: string,
+    environment: NodeJS.ProcessEnv,
+): Promise<void> {
     try {
         const result = await run(binary, ['--version'], {
             encoding: 'utf8',
+            env: minimalZoltEnvironment(environment),
             maxBuffer: 1024 * 1024,
             timeout: 10_000,
             windowsHide: true,

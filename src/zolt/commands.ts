@@ -2,10 +2,11 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { errorMessage, SubmitDependenciesError } from '../errors';
+import { SubmitDependenciesError } from '../errors';
+import { publicBufferText, publicErrorMessage, registeredSecrets } from '../public-output';
 import type { ActionInputs } from '../types';
 import type { RepositoryDirectory } from '../environment/directory';
-import { normalAnalysisEnvironment, runZolt, type ZoltRunner, validationEnvironment } from './process';
+import { minimalZoltEnvironment, runZolt, type ZoltRunner, validationEnvironment } from './process';
 import { parseMachineJson, readMachineJson } from './outputs';
 import { selectZoltProject, type ZoltProjectSelection } from './workspace';
 
@@ -32,6 +33,7 @@ export async function captureZoltOutputs(
     dependencies: AnalysisDependencies = {},
 ): Promise<ZoltMachineOutputs> {
     const environment = dependencies.environment ?? process.env;
+    const secrets = registeredSecrets(environment, [inputs.githubToken]);
     const selection = await (dependencies.select ?? selectZoltProject)(repository, inputs.workspace);
     const temporaryBase = dependencies.temporaryRoot ?? environment.RUNNER_TEMP ?? tmpdir();
     await mkdir(temporaryBase, { mode: 0o700, recursive: true });
@@ -48,7 +50,7 @@ export async function captureZoltOutputs(
                 label: 'Zolt locked resolution validation',
             });
         }
-        const analysisEnvironment = normalAnalysisEnvironment(environment);
+        const analysisEnvironment = minimalZoltEnvironment(environment);
         const treeResult = await runner(binary, treeArguments(selection), {
             cwd: selection.root,
             environment: analysisEnvironment,
@@ -68,7 +70,7 @@ export async function captureZoltOutputs(
             mode: selection.mode,
             tree: parseMachineJson(treeResult.stdout, 'Zolt tree output'),
             warnings: [treeResult.stderr, bomResult.stderr]
-                .map((value) => value.toString('utf8').trim())
+                .map((value) => publicBufferText(value, secrets))
                 .filter((value) => value !== ''),
         };
     } catch (error) {
@@ -80,7 +82,7 @@ export async function captureZoltOutputs(
         if (operationError !== undefined) {
             throw new SubmitDependenciesError(
                 'ZOLT-CLEANUP-002',
-                `${errorMessage(operationError)} Private analysis-directory cleanup also failed.`,
+                `${publicErrorMessage(operationError, secrets)} Private analysis-directory cleanup also failed.`,
                 { cause: cleanupError },
             );
         }
@@ -90,7 +92,7 @@ export async function captureZoltOutputs(
     }
     if (operationError instanceof Error) throw operationError;
     if (operationError !== undefined) {
-        throw new SubmitDependenciesError('ZOLT-PROCESS-003', errorMessage(operationError));
+        throw new SubmitDependenciesError('ZOLT-PROCESS-003', publicErrorMessage(operationError, secrets));
     }
     if (result === undefined) throw new SubmitDependenciesError('ZOLT-PROCESS-002', 'Zolt analysis produced no result.');
     return result;

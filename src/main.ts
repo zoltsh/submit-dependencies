@@ -3,7 +3,7 @@ import * as core from '@actions/core';
 import { convert, type ConvertedManifest } from './converter/convert';
 import { PRESERVE_ZOLT_PURLS } from './converter/purl-policy';
 import { resolveExecutionContext } from './environment/context';
-import { errorMessage, SubmitDependenciesError } from './errors';
+import { SubmitDependenciesError } from './errors';
 import { readGitHubSubmissionContext } from './github/context';
 import { buildSnapshot } from './github/snapshot';
 import { submitSnapshot } from './github/submit';
@@ -11,6 +11,7 @@ import { renderSummary } from './github/summary';
 import { readInputs, type InputReader } from './inputs';
 import { installZolt, type InstalledZolt } from './install/install-zolt';
 import { resolveTarget } from './install/platform';
+import { publicErrorMessage, publicText, registeredSecrets } from './public-output';
 import { captureZoltOutputs } from './zolt/commands';
 
 export interface ActionCore extends InputReader {
@@ -39,19 +40,24 @@ export async function runAction(dependencies: ActionDependencies = {}): Promise<
     const actionCore = dependencies.core ?? core;
     const environment = dependencies.environment ?? process.env;
     let installed: InstalledZolt | undefined;
-    let token: string | undefined;
+    let secrets = registeredSecrets(environment);
+    const maskedSecrets: Set<string> = new Set();
     try {
         const inputs = readInputs(actionCore, (secret) => {
             actionCore.setSecret(secret);
+            maskedSecrets.add(secret);
         });
-        token = inputs.githubToken;
+        secrets = registeredSecrets(environment, [inputs.githubToken]);
+        for (const secret of secrets) {
+            if (!maskedSecrets.has(secret)) actionCore.setSecret(secret);
+        }
         const [context, submissionContext] = await Promise.all([
             (dependencies.resolveContext ?? resolveExecutionContext)(inputs, environment),
             Promise.resolve((dependencies.resolveSubmissionContext ?? readGitHubSubmissionContext)(environment)),
         ]);
         const target = resolveTarget(dependencies.platform ?? process.platform, dependencies.architecture ?? process.arch);
         actionCore.info(`Validated ${context.repository.relativeDirectory} on ${context.event.defaultBranch}; installing pinned Zolt for ${target}.`);
-        installed = await (dependencies.install ?? installZolt)(target);
+        installed = await (dependencies.install ?? installZolt)(target, { environment });
         actionCore.info(`Verified pinned Zolt ${installed.version} for ${installed.target}; SHA-256 ${installed.sha256}.`);
         const machine = await (dependencies.capture ?? captureZoltOutputs)(
             installed.binary,
@@ -82,18 +88,20 @@ export async function runAction(dependencies: ActionDependencies = {}): Promise<
             validateLock: inputs.validateLock,
             zoltVersion: installed.version,
         }));
-        for (const warning of machine.warnings) actionCore.info(`Zolt warning: ${warning}`);
+        for (const warning of machine.warnings) actionCore.info(`Zolt warning: ${publicText(warning, secrets)}`);
         actionCore.info(
             `Submitted dependency snapshot ${submission.id.toString()} with ${manifest.statistics.externalDependencies.toString()} external dependencies.`,
         );
     } catch (error) {
-        actionCore.setFailed(redact(errorMessage(error, environment.ACTIONS_STEP_DEBUG === 'true'), token));
+        actionCore.setFailed(publicErrorMessage(error, secrets));
     } finally {
         if (installed !== undefined) {
             try {
                 await installed.cleanup();
             } catch (error) {
-                actionCore.setFailed(`ZOLT-CLEANUP-001: Could not remove the private Zolt installation: ${errorMessage(error)}.`);
+                actionCore.setFailed(
+                    `ZOLT-CLEANUP-001: Could not remove the private Zolt installation: ${publicErrorMessage(error, secrets)}.`,
+                );
             }
         }
     }
@@ -111,8 +119,4 @@ function assertMode(capturedMode: 'project' | 'workspace', manifest: ConvertedMa
 async function writeActionSummary(markdown: string): Promise<void> {
     core.summary.addRaw(markdown);
     await core.summary.write();
-}
-
-function redact(message: string, token: string | undefined): string {
-    return token === undefined || token === '' ? message : message.split(token).join('***');
 }

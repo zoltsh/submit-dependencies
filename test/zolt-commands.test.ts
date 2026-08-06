@@ -67,7 +67,7 @@ describe('Zolt command orchestration', () => {
         expect(calls[2]?.args).toEqual(expect.arrayContaining([
             'sbom', '--workspace', '--offline', '--include-dev', '--include-test', '--include-provided', '--include-tools',
         ]));
-        expect(calls[2]?.options.environment).toEqual({ HOME: '/home/runner', PATH: '/bin', RUNNER_TEMP: temporaryRoot });
+        expect(calls[2]?.options.environment).toEqual({ PATH: '/bin', RUNNER_TEMP: temporaryRoot });
         expect(result).toEqual({
             bom: { bom: true }, manifestPath: 'zolt.lock', mode: 'workspace', tree: { tree: true },
             warnings: ['license warning'],
@@ -93,13 +93,14 @@ describe('Zolt command orchestration', () => {
             },
             runner: async () => {
                 await Promise.resolve();
-                throw new Error('tree failed');
+                throw new Error('tree failed with raw-secret');
             },
             select: async () => {
                 await Promise.resolve();
                 return { lockfile: join(root, 'zolt.lock'), manifestPath: 'zolt.lock', mode: 'project', root };
             },
             temporaryRoot: root,
-        })).rejects.toThrow(/tree failed.*cleanup also failed/u);
+            environment: { DEPLOY_PASSWORD: 'raw-secret' },
+        })).rejects.toThrow(/tree failed with \*\*\*.*cleanup also failed/u);
     });
 });

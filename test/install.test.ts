@@ -55,11 +55,16 @@ describe('pinned installer', () => {
     it('retains a verified private binary until explicit cleanup', async () => {
         const source = await archive('macos-arm64');
         const transport = downloader(source, ZOLT_RELEASE['macos-arm64'].sha256);
-        const verify = vi.fn(async (_binary: string, version: string) => {
+        const verify = vi.fn(async (_binary: string, version: string, environment: NodeJS.ProcessEnv) => {
             await Promise.resolve();
             expect(version).toBe(ZOLT_VERSION);
+            expect(environment).toEqual({ GITHUB_TOKEN: 'secret', PATH: '/bin' });
         });
-        const installed = await installZolt('macos-arm64', { downloader: transport, verifyVersion: verify });
+        const installed = await installZolt('macos-arm64', {
+            downloader: transport,
+            environment: { GITHUB_TOKEN: 'secret', PATH: '/bin' },
+            verifyVersion: verify,
+        });
         await expect(access(installed.binary)).resolves.toBeUndefined();
         expect(installed).toMatchObject({ target: 'macos-arm64', version: ZOLT_VERSION });
         expect(verify).toHaveBeenCalledOnce();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { normalAnalysisEnvironment, runZolt, validationEnvironment } from '../src/zolt/process';
+import { minimalZoltEnvironment, runZolt, validationEnvironment } from '../src/zolt/process';
 
 describe('Zolt process adapter', () => {
     it('captures stdout and stderr without a shell wrapper', async () => {
@@ -12,16 +12,16 @@ describe('Zolt process adapter', () => {
     });
 
     it('returns a stable bounded process error', async () => {
-        await expect(runZolt('/bin/sh', ['-c', 'printf failure >&2; exit 7'], {
-            cwd: '/', environment: { PATH: '/bin' }, label: 'fixture command',
-        })).rejects.toThrow('ZOLT-PROCESS-001: fixture command failed: failure');
+        await expect(runZolt('/bin/sh', ['-c', 'printf \'\\033[31m::warning:: first\\nsecond secret-value\' >&2; exit 7'], {
+            cwd: '/', environment: { DEPLOY_PASSWORD: 'secret-value', PATH: '/bin' }, label: 'fixture command',
+        })).rejects.toThrow('ZOLT-PROCESS-001: fixture command failed: : :warning: : first second ***');
     });
 
     it('keeps normal analysis minimal and strips GitHub tokens from validation', () => {
         const source = {
             GITHUB_TOKEN: 'secret', HOME: '/home', MAVEN_TOKEN: 'maven', PATH: '/bin', SAME: 'secret',
         };
-        expect(normalAnalysisEnvironment(source)).toEqual({ HOME: '/home', PATH: '/bin' });
+        expect(minimalZoltEnvironment(source)).toEqual({ PATH: '/bin' });
         expect(validationEnvironment(source, 'secret')).toEqual({ HOME: '/home', MAVEN_TOKEN: 'maven', PATH: '/bin' });
     });
 });

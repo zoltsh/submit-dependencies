@@ -39,7 +39,7 @@ describe('action analysis integration', () => {
         await writeFile(fake, fakeZoltScript(tree, bom, callLog));
         await chmod(fake, 0o755);
 
-        await expect(verifyZoltVersion(fake, 'fixture-zolt-1')).resolves.toBeUndefined();
+        await expect(verifyZoltVersion(fake, 'fixture-zolt-1', { PATH: process.env.PATH })).resolves.toBeUndefined();
         const machine = await captureZoltOutputs(fake, {
             directory: '.', githubToken: 'must-not-reach-zolt', validateLock: true, workspace: 'false',
         }, {
