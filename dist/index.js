@@ -34293,7 +34293,7 @@ function convert(input) {
     const treeGraph = treeDependencyGraph(tree, mappings, accumulators, firstParty);
     const bomGraph = bomDependencyGraph(bom, firstParty, componentPurls.byRef);
     compareGraphs(treeGraph, bomGraph);
-    requireReachability(treeGraph, tree.mode === 'project' ? [ROOT_GRAPH_NODE] : firstParty.purlByPath.values(), accumulators);
+    requireReachability(treeGraph, reachabilityRoots(tree, mappings, treeGraph, firstParty), accumulators);
     const dependencies = new Map();
     for (const purl of [...accumulators.keys()].sort()) {
         const value = mapValue(accumulators, purl, `Missing accumulator for ${purl}.`);
@@ -34532,6 +34532,29 @@ function bomDependencyGraph(bom, firstParty, purlsByRef) {
     }
     return graph;
 }
+function reachabilityRoots(tree, mappings, graph, firstParty) {
+    if (tree.mode === 'workspace')
+        return firstParty.purlByPath.values();
+    const incoming = new Set([...graph.values()].flatMap((targets) => [...targets]));
+    const roots = new Set([ROOT_GRAPH_NODE]);
+    for (const pkg of tree.packages) {
+        const mapping = mapValue(mappings, pkg.nodeKey, `Missing package mapping for ${pkg.coordinate}.`);
+        if (!incoming.has(mapping.purl) && legacyInjectedToolingRoot(pkg))
+            roots.add(mapping.purl);
+    }
+    return roots;
+}
+function legacyInjectedToolingRoot(pkg) {
+    if (pkg.direct)
+        return false;
+    if (injectedToolingScope(pkg.scope))
+        return true;
+    return pkg.scope === 'test'
+        && pkg.artifact.group === 'org.junit.platform'
+        && pkg.artifact.artifact === 'junit-platform-console'
+        && pkg.artifact.type === 'jar'
+        && pkg.artifact.classifier === undefined;
+}
 function requireReachability(graph, roots, externals) {
     const reached = new Set(roots);
     const pending = [...reached];
@@ -34548,7 +34571,7 @@ function requireReachability(graph, roots, externals) {
     }
     const unreachable = [...externals.keys()].filter((purl) => !reached.has(purl)).sort();
     if (unreachable.length !== 0) {
-        throw graphError('ZOLT-GRAPH-016', `Workspace graph contains packages unreachable from every member: ${unreachable.join(', ')}. No dependency snapshot was submitted.`);
+        throw graphError('ZOLT-GRAPH-016', `Dependency graph contains packages unreachable from every accepted root: ${unreachable.join(', ')}. No dependency snapshot was submitted.`);
     }
 }
 function compareGraphs(tree, bom) {

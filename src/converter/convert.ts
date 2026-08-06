@@ -75,7 +75,7 @@ export function convert(input: ConvertInput): ConvertedManifest {
     compareGraphs(treeGraph, bomGraph);
     requireReachability(
         treeGraph,
-        tree.mode === 'project' ? [ROOT_GRAPH_NODE] : firstParty.purlByPath.values(),
+        reachabilityRoots(tree, mappings, treeGraph, firstParty),
         accumulators,
     );
 
@@ -360,6 +360,32 @@ function bomDependencyGraph(
     return graph;
 }
 
+function reachabilityRoots(
+    tree: TreeDocument,
+    mappings: ReadonlyMap<string, Mapping>,
+    graph: ReadonlyMap<string, ReadonlySet<string>>,
+    firstParty: FirstPartyIndex,
+): Iterable<string> {
+    if (tree.mode === 'workspace') return firstParty.purlByPath.values();
+    const incoming = new Set([...graph.values()].flatMap((targets) => [...targets]));
+    const roots = new Set([ROOT_GRAPH_NODE]);
+    for (const pkg of tree.packages) {
+        const mapping = mapValue(mappings, pkg.nodeKey, `Missing package mapping for ${pkg.coordinate}.`);
+        if (!incoming.has(mapping.purl) && legacyInjectedToolingRoot(pkg)) roots.add(mapping.purl);
+    }
+    return roots;
+}
+
+function legacyInjectedToolingRoot(pkg: TreePackage): boolean {
+    if (pkg.direct) return false;
+    if (injectedToolingScope(pkg.scope)) return true;
+    return pkg.scope === 'test'
+        && pkg.artifact.group === 'org.junit.platform'
+        && pkg.artifact.artifact === 'junit-platform-console'
+        && pkg.artifact.type === 'jar'
+        && pkg.artifact.classifier === undefined;
+}
+
 function requireReachability(
     graph: ReadonlyMap<string, ReadonlySet<string>>,
     roots: Iterable<string>,
@@ -381,7 +407,7 @@ function requireReachability(
     if (unreachable.length !== 0) {
         throw graphError(
             'ZOLT-GRAPH-016',
-            `Workspace graph contains packages unreachable from every member: ${unreachable.join(', ')}. No dependency snapshot was submitted.`,
+            `Dependency graph contains packages unreachable from every accepted root: ${unreachable.join(', ')}. No dependency snapshot was submitted.`,
         );
     }
 }

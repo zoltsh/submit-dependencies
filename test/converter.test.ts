@@ -73,6 +73,50 @@ describe('pure dependency converter', () => {
         expect(result.dependencies.get(value)).toMatchObject({ relationship: 'direct', scope: 'runtime' });
     });
 
+    it('accepts only exact legacy injected tooling roots in schema 1', () => {
+        const console = purl('org.junit.platform', 'junit-platform-console', '1.11.4');
+        const reporting = purl('org.junit.platform', 'junit-platform-reporting', '1.11.4');
+        const toolingTree = projectTree([
+            { id: 'org.junit.platform:junit-platform-console', version: '1.11.4', scope: 'test', direct: false,
+                dependencies: ['org.junit.platform:junit-platform-reporting:1.11.4:jar:test'] },
+            { id: 'org.junit.platform:junit-platform-reporting', version: '1.11.4', scope: 'test', direct: false },
+        ]);
+        const result = convert({
+            bom: projectBom([component(console), component(reporting)], {
+                [console]: [reporting], [reporting]: [],
+            }, []),
+            manifestPath: 'zolt.lock',
+            purlPolicy: PRESERVE_ZOLT_PURLS,
+            tree: toolingTree,
+        });
+        expect([...result.dependencies]).toEqual([
+            [console, { dependencies: [reporting], packageUrl: console,
+                relationship: 'indirect', scope: 'development' }],
+            [reporting, { dependencies: [], packageUrl: reporting,
+                relationship: 'indirect', scope: 'development' }],
+        ]);
+
+        const explicitTool = purl('org.example', 'coverage-tool', '1.0.0');
+        expect(() => convert({
+            bom: projectBom([component(explicitTool)], { [explicitTool]: [] }, []),
+            manifestPath: 'zolt.lock',
+            purlPolicy: PRESERVE_ZOLT_PURLS,
+            tree: projectTree([
+                { id: 'org.example:coverage-tool', version: '1.0.0', scope: 'tool-coverage', direct: false },
+            ]),
+        })).not.toThrow();
+
+        const ordinary = purl('org.example', 'ordinary', '1.0.0');
+        expect(() => convert({
+            bom: projectBom([component(ordinary)], { [ordinary]: [] }, []),
+            manifestPath: 'zolt.lock',
+            purlPolicy: PRESERVE_ZOLT_PURLS,
+            tree: projectTree([
+                { id: 'org.example:ordinary', version: '1.0.0', scope: 'test', direct: false },
+            ]),
+        })).toThrow(/ZOLT-GRAPH-016.*unreachable from every accepted root/u);
+    });
+
     it('preserves classifiers and non-default artifact types', () => {
         const classified = purl('org.example', 'agent', '0.9.0', 'jar', 'runtime');
         const zip = purl('org.example', 'bundle', '3.0.0', 'zip');
