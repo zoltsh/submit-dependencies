@@ -1,7 +1,14 @@
 import { decodeCycloneDx, type BomDocument } from '../contracts/cyclonedx';
-import { artifactIdentity, decodeTree, type TreeDocument, type TreePackage, type ZoltScope } from '../contracts/tree';
+import {
+    artifactIdentity,
+    decodeTree,
+    type TreeDocument,
+    type TreePackage,
+    type ZoltScope,
+} from '../contracts/tree';
 import { type ArtifactIdentity, artifactKey, graphError, parsePackageId, parseVariant, treeNodeKey } from './identity';
 import { normalizeForGitHub, type PurlPolicy } from './purl-policy';
+import { isZoltManifestPath } from '../manifest-path';
 
 export interface ConvertedDependency {
     readonly dependencies: readonly string[];
@@ -25,7 +32,7 @@ export interface ConvertedManifest {
     readonly name: string;
     readonly sourceLocation: string;
     readonly statistics: ConversionStatistics;
-    readonly treeSchema: 1 | 2;
+    readonly treeSchema: 1 | 3;
     readonly lockVersion?: number;
 }
 
@@ -38,8 +45,16 @@ export interface ConvertInput {
 
 interface Mapping {
     readonly firstParty: boolean;
-    readonly purl?: string;
+    readonly purl: string;
 }
+
+interface FirstPartyIndex {
+    readonly purlByPath: ReadonlyMap<string, string>;
+    readonly purlByRef: ReadonlyMap<string, string>;
+    readonly refs: ReadonlySet<string>;
+}
+
+const ROOT_GRAPH_NODE = 'zolt:root';
 
 interface Accumulator {
     readonly children: Set<string>;
@@ -51,13 +66,18 @@ export function convert(input: ConvertInput): ConvertedManifest {
     validateManifestPath(input.manifestPath);
     const tree = decodeTree(input.tree);
     const bom = decodeCycloneDx(input.bom);
-    const firstPartyRefs = firstPartyComponentRefs(tree, bom);
-    const componentPurls = indexComponentPurls(bom, firstPartyRefs, input.purlPolicy);
-    const mappings = mapTreePackages(tree, bom, firstPartyRefs, componentPurls.byArtifact);
+    const firstParty = firstPartyComponents(tree, bom);
+    const componentPurls = indexComponentPurls(bom, firstParty.refs, input.purlPolicy);
+    const mappings = mapTreePackages(tree, firstParty, componentPurls.byArtifact);
     const accumulators = aggregateTree(tree, mappings);
-    const treeGraph = treeDependencyGraph(tree, mappings, accumulators);
-    const bomGraph = bomDependencyGraph(bom, firstPartyRefs, componentPurls.byRef);
+    const treeGraph = treeDependencyGraph(tree, mappings, accumulators, firstParty);
+    const bomGraph = bomDependencyGraph(bom, firstParty, componentPurls.byRef);
     compareGraphs(treeGraph, bomGraph);
+    requireReachability(
+        treeGraph,
+        tree.mode === 'project' ? [ROOT_GRAPH_NODE] : firstParty.purlByPath.values(),
+        accumulators,
+    );
 
     const dependencies: Map<string, ConvertedDependency> = new Map();
     for (const purl of [...accumulators.keys()].sort()) {
@@ -89,8 +109,21 @@ export function convert(input: ConvertInput): ConvertedManifest {
     };
 }
 
-function firstPartyComponentRefs(tree: TreeDocument, bom: BomDocument): Set<string> {
-    if (tree.mode === 'project') return new Set();
+function firstPartyComponents(tree: TreeDocument, bom: BomDocument): FirstPartyIndex {
+    if (tree.mode === 'project') {
+        const project = tree.project;
+        if (project === undefined || bom.root.artifact === undefined) {
+            throw graphError('ZOLT-GRAPH-008', 'The project tree and CycloneDX root do not expose matching Maven identities.');
+        }
+        if (
+            project.group !== bom.root.artifact.group
+            || project.artifact !== bom.root.artifact.artifact
+            || project.version !== bom.root.artifact.version
+        ) {
+            throw graphError('ZOLT-GRAPH-008', 'The project tree and CycloneDX root Maven identities disagree.');
+        }
+        return { purlByPath: new Map(), purlByRef: new Map(), refs: new Set() };
+    }
     const roots = bom.dependencies.get(bom.root.ref) ?? [];
     if (roots.length !== tree.workspaceMembers.length) {
         throw graphError(
@@ -98,15 +131,33 @@ function firstPartyComponentRefs(tree: TreeDocument, bom: BomDocument): Set<stri
             `Workspace tree lists ${tree.workspaceMembers.length.toString()} members but CycloneDX identifies ${roots.length.toString()}.`,
         );
     }
-    const refs: Set<string> = new Set();
+    const rootsByArtifact: Map<string, { readonly purl: string; readonly ref: string }> = new Map();
     for (const ref of roots) {
         const component = bom.components.get(ref);
-        if (component?.purl === undefined) {
-            throw graphError('ZOLT-GRAPH-008', `Workspace member ${ref} has no canonical Maven PURL.`);
+        if (component?.purl === undefined || component.artifactKey === undefined) {
+            throw graphError('ZOLT-GRAPH-008', `Workspace root child ${ref} has no canonical Maven PURL.`);
         }
-        refs.add(ref);
+        if (rootsByArtifact.has(component.artifactKey)) {
+            throw graphError('ZOLT-GRAPH-008', `Workspace root identifies duplicate member package ${component.purl}.`);
+        }
+        rootsByArtifact.set(component.artifactKey, { purl: component.purl, ref });
     }
-    return refs;
+    const purlByPath: Map<string, string> = new Map();
+    const purlByRef: Map<string, string> = new Map();
+    const refs: Set<string> = new Set();
+    for (const member of tree.workspaceMembers) {
+        const component = rootsByArtifact.get(member.artifactKey);
+        if (component === undefined) {
+            throw graphError('ZOLT-GRAPH-008', `CycloneDX root does not identify workspace member ${member.path}.`);
+        }
+        purlByPath.set(member.path, component.purl);
+        purlByRef.set(component.ref, component.purl);
+        refs.add(component.ref);
+    }
+    if (refs.size !== roots.length) {
+        throw graphError('ZOLT-GRAPH-008', 'CycloneDX root contains a component that is not a declared workspace member.');
+    }
+    return { purlByPath, purlByRef, refs };
 }
 
 function indexComponentPurls(
@@ -132,20 +183,16 @@ function indexComponentPurls(
 
 function mapTreePackages(
     tree: TreeDocument,
-    bom: BomDocument,
-    firstPartyRefs: ReadonlySet<string>,
+    firstParty: FirstPartyIndex,
     externalByArtifact: ReadonlyMap<string, ReadonlySet<string>>,
 ): ReadonlyMap<string, Mapping> {
-    const firstPartyArtifacts: Set<string> = new Set();
-    for (const ref of firstPartyRefs) {
-        const key = bom.components.get(ref)?.artifactKey;
-        if (key !== undefined) firstPartyArtifacts.add(key);
-    }
     const mappings: Map<string, Mapping> = new Map();
     for (const pkg of tree.packages) {
         const key = artifactIdentity(pkg);
-        if (firstPartyArtifacts.has(key)) {
-            mappings.set(pkg.nodeKey, { firstParty: true });
+        if (pkg.workspace !== undefined) {
+            const purl = firstParty.purlByPath.get(pkg.workspace);
+            if (purl === undefined) throw graphError('ZOLT-GRAPH-008', `Tree package ${pkg.coordinate} has unknown owner ${pkg.workspace}.`);
+            mappings.set(pkg.nodeKey, { firstParty: true, purl });
             continue;
         }
         const candidates = externalByArtifact.get(key) ?? new Set<string>();
@@ -169,7 +216,7 @@ function aggregateTree(tree: TreeDocument, mappings: ReadonlyMap<string, Mapping
     const accumulators: Map<string, Accumulator> = new Map();
     for (const pkg of tree.packages) {
         const mapping = mapValue(mappings, pkg.nodeKey, `Missing package mapping for ${pkg.coordinate}.`);
-        if (mapping.firstParty || mapping.purl === undefined) continue;
+        if (mapping.firstParty) continue;
         const accumulator = accumulators.get(mapping.purl) ?? { children: new Set<string>(), direct: false, runtime: false };
         accumulator.direct ||= pkg.direct;
         accumulator.runtime ||= runtimeScope(pkg.scope);
@@ -182,23 +229,51 @@ function treeDependencyGraph(
     tree: TreeDocument,
     mappings: ReadonlyMap<string, Mapping>,
     accumulators: ReadonlyMap<string, Accumulator>,
+    firstParty: FirstPartyIndex,
 ): ReadonlyMap<string, ReadonlySet<string>> {
     const nodes = new Map(tree.packages.map((pkg) => [pkg.nodeKey, pkg]));
-    const graph: Map<string, Set<string>> = new Map([...accumulators.keys()].map((purl) => [purl, new Set<string>()]));
+    const graph: Map<string, Set<string>> = new Map(
+        [...new Set([ROOT_GRAPH_NODE, ...accumulators.keys(), ...firstParty.purlByPath.values()])]
+            .map((purl) => [purl, new Set<string>()]),
+    );
+    if (tree.mode === 'workspace') {
+        const root = mapValue(graph, ROOT_GRAPH_NODE, 'Missing workspace root graph node.');
+        for (const memberPurl of firstParty.purlByPath.values()) root.add(memberPurl);
+        for (const member of tree.workspaceMembers) {
+            const memberPurl = mapValue(
+                firstParty.purlByPath,
+                member.path,
+                `Missing member mapping for ${member.path}.`,
+            );
+            for (const edge of member.dependencies) {
+                const target = resolveEdge(edge, tree.packages, nodes);
+                const targetMapping = mapValue(mappings, target.nodeKey, `Missing package mapping for ${target.coordinate}.`);
+                if (memberPurl === targetMapping.purl) {
+                    throw graphError('ZOLT-GRAPH-010', `Workspace member ${member.path} has a self-edge ${edge}.`);
+                }
+                mapValue(graph, memberPurl, `Missing tree graph node for ${memberPurl}.`).add(targetMapping.purl);
+            }
+        }
+    }
     for (const source of tree.packages) {
         const sourceMapping = mapValue(mappings, source.nodeKey, `Missing package mapping for ${source.coordinate}.`);
+        if (source.direct && tree.mode === 'project') {
+            mapValue(graph, ROOT_GRAPH_NODE, 'Missing project root graph node.').add(sourceMapping.purl);
+        }
         for (const edge of source.dependencies) {
             const target = resolveEdge(edge, tree.packages, nodes);
             const targetMapping = mapValue(mappings, target.nodeKey, `Missing package mapping for ${target.coordinate}.`);
-            if (sourceMapping.firstParty || sourceMapping.purl === undefined || targetMapping.firstParty) continue;
-            if (targetMapping.purl === undefined || !accumulators.has(targetMapping.purl)) {
+            if (!targetMapping.firstParty && !accumulators.has(targetMapping.purl)) {
                 throw graphError('ZOLT-GRAPH-009', `Dependency edge ${edge} does not target a submitted package.`);
             }
             if (sourceMapping.purl === targetMapping.purl) {
                 throw graphError('ZOLT-GRAPH-010', `Dependency edge ${edge} becomes a self-edge after PURL normalization.`);
             }
             mapValue(graph, sourceMapping.purl, `Missing tree graph node for ${sourceMapping.purl}.`).add(targetMapping.purl);
-            mapValue(accumulators, sourceMapping.purl, `Missing accumulator for ${sourceMapping.purl}.`).children.add(targetMapping.purl);
+            if (!sourceMapping.firstParty && !targetMapping.firstParty) {
+                mapValue(accumulators, sourceMapping.purl, `Missing accumulator for ${sourceMapping.purl}.`)
+                    .children.add(targetMapping.purl);
+            }
         }
     }
     return graph;
@@ -238,24 +313,51 @@ function resolveEdge(
 
 function bomDependencyGraph(
     bom: BomDocument,
-    firstPartyRefs: ReadonlySet<string>,
+    firstParty: FirstPartyIndex,
     purlsByRef: ReadonlyMap<string, string>,
 ): ReadonlyMap<string, ReadonlySet<string>> {
     const graph: Map<string, Set<string>> = new Map();
-    for (const purl of purlsByRef.values()) graph.set(purl, new Set());
+    for (const purl of [ROOT_GRAPH_NODE, ...purlsByRef.values(), ...firstParty.purlByPath.values()]) {
+        graph.set(purl, new Set());
+    }
+    const allPurls = new Map([[bom.root.ref, ROOT_GRAPH_NODE], ...purlsByRef, ...firstParty.purlByRef]);
     for (const [sourceRef, targets] of bom.dependencies) {
-        if (sourceRef === bom.root.ref || firstPartyRefs.has(sourceRef)) continue;
-        const source = purlsByRef.get(sourceRef);
+        const source = allPurls.get(sourceRef);
         if (source === undefined) throw graphError('ZOLT-GRAPH-005', `CycloneDX source ${sourceRef} has no submitted PURL.`);
         for (const targetRef of targets) {
-            if (firstPartyRefs.has(targetRef)) continue;
-            const target = purlsByRef.get(targetRef);
+            const target = allPurls.get(targetRef);
             if (target === undefined) throw graphError('ZOLT-GRAPH-005', `CycloneDX target ${targetRef} has no submitted PURL.`);
             if (source === target) throw graphError('ZOLT-GRAPH-010', `CycloneDX edge ${sourceRef} -> ${targetRef} collapses to a self-edge.`);
             graph.get(source)?.add(target);
         }
     }
     return graph;
+}
+
+function requireReachability(
+    graph: ReadonlyMap<string, ReadonlySet<string>>,
+    roots: Iterable<string>,
+    externals: ReadonlyMap<string, Accumulator>,
+): void {
+    const reached = new Set(roots);
+    const pending = [...reached];
+    while (pending.length !== 0) {
+        const source = pending.shift();
+        if (source === undefined) break;
+        for (const target of graph.get(source) ?? []) {
+            if (!reached.has(target)) {
+                reached.add(target);
+                pending.push(target);
+            }
+        }
+    }
+    const unreachable = [...externals.keys()].filter((purl) => !reached.has(purl)).sort();
+    if (unreachable.length !== 0) {
+        throw graphError(
+            'ZOLT-GRAPH-016',
+            `Workspace graph contains packages unreachable from every member: ${unreachable.join(', ')}. No dependency snapshot was submitted.`,
+        );
+    }
 }
 
 function compareGraphs(
@@ -285,7 +387,7 @@ function runtimeScope(scope: ZoltScope): boolean {
 }
 
 function validateManifestPath(value: string): void {
-    if (value === '' || value.startsWith('/') || value.includes('\\') || value.split('/').includes('..')) {
+    if (!isZoltManifestPath(value)) {
         throw graphError('ZOLT-GRAPH-013', `Manifest path ${JSON.stringify(value)} is not repository-relative.`);
     }
 }

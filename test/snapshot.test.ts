@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ConvertedManifest } from '../src/converter/convert';
-import { buildSnapshot, manifestCorrelator } from '../src/github/snapshot';
+import { buildClearSnapshot, buildSnapshot, manifestCorrelator } from '../src/github/snapshot';
 
 function manifest(): ConvertedManifest {
     const a = 'pkg:maven/org.example/a@1.0.0?type=jar';
@@ -18,7 +18,7 @@ function manifest(): ConvertedManifest {
         statistics: {
             dependencyEdges: 1, development: 1, direct: 1, externalDependencies: 2, indirect: 1, runtime: 1,
         },
-        treeSchema: 2,
+        treeSchema: 3,
     };
 }
 
@@ -47,7 +47,8 @@ describe('dependency snapshot construction', () => {
                 name: 'zoltsh/submit-dependencies', version: '0.1.0',
                 url: 'https://github.com/zoltsh/submit-dependencies',
                 metadata: {
-                    lock_version: 5, mode: 'workspace', sbom_spec: '1.5', tree_schema: 2, zolt_version: '0.2.0',
+                    lock_version: 5, mode: 'workspace', sbom_spec: '1.5', state: 'submit', tree_schema: 3,
+                    zolt_version: '0.2.0',
                 },
             },
         });
@@ -80,5 +81,26 @@ describe('dependency snapshot construction', () => {
         });
         expect(snapshot.detector.metadata.lock_version).toBe('unknown');
         expect(manifestCorrelator('services/api/zolt.lock')).not.toBe(manifestCorrelator('zolt.lock'));
+    });
+
+    it('builds an empty tombstone with the same stable manifest identity', () => {
+        const context = {
+            attempt: '2', owner: 'zoltsh', ref: 'refs/heads/main', repository: 'demo', runId: '43',
+            serverUrl: 'https://github.com', sha: 'b'.repeat(40),
+        };
+        const result = buildClearSnapshot({
+            context,
+            manifestPath: 'services/old/zolt.lock',
+            scanned: new Date('2026-08-05T12:35:00.000Z'),
+        });
+        expect(result.detector.metadata).toEqual({ state: 'clear' });
+        expect(result.job.correlator).toBe(manifestCorrelator('services/old/zolt.lock'));
+        expect(result.manifests).toEqual({
+            'services/old/zolt.lock': {
+                file: { source_location: 'services/old/zolt.lock' },
+                name: 'services/old/zolt.lock',
+                resolved: {},
+            },
+        });
     });
 });

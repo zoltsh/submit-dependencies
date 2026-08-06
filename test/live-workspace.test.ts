@@ -32,6 +32,7 @@ describe('live pinned Zolt workspace contract', () => {
                 const machine = await captureZoltOutputs(installed.binary, {
                     directory: '.',
                     githubToken: 'must-not-reach-zolt',
+                    state: 'submit',
                     validateLock: false,
                     workspace: 'true',
                 }, {
@@ -41,7 +42,7 @@ describe('live pinned Zolt workspace contract', () => {
                 });
                 const result = convert({ ...machine, purlPolicy: PRESERVE_ZOLT_PURLS });
 
-                expect(result).toMatchObject({ lockVersion: 5, mode: 'workspace', treeSchema: 2 });
+                expect(result).toMatchObject({ lockVersion: 5, mode: 'workspace', treeSchema: 3 });
                 expect(result.statistics).toEqual({
                     dependencyEdges: 12,
                     development: 14,

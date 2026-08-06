@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { RepositoryDirectory } from '../src/environment/directory';
+import { SubmitDependenciesError } from '../src/errors';
 import type { ActionInputs } from '../src/types';
 import { captureZoltOutputs } from '../src/zolt/commands';
 import type { ZoltProcessOptions, ZoltProcessResult } from '../src/zolt/process';
@@ -38,7 +39,7 @@ describe('Zolt command orchestration', () => {
         });
         const repository: RepositoryDirectory = { directory: root, relativeDirectory: '.', workspace: root };
         const inputs: ActionInputs = {
-            directory: '.', githubToken: 'github-secret', validateLock: true, workspace: 'true',
+            directory: '.', githubToken: 'github-secret', state: 'submit', validateLock: true, workspace: 'true',
         };
         const result = await captureZoltOutputs('/verified/zolt', inputs, repository, {
             environment: {
@@ -82,7 +83,7 @@ describe('Zolt command orchestration', () => {
     it('preserves the operation failure when cleanup also fails', async () => {
         const root = await temporary();
         const inputs: ActionInputs = {
-            directory: '.', githubToken: 'secret', validateLock: false, workspace: 'false',
+            directory: '.', githubToken: 'secret', state: 'submit', validateLock: false, workspace: 'false',
         };
         await expect(captureZoltOutputs('/verified/zolt', inputs, {
             directory: root, relativeDirectory: '.', workspace: root,
@@ -93,7 +94,11 @@ describe('Zolt command orchestration', () => {
             },
             runner: async () => {
                 await Promise.resolve();
-                throw new Error('tree failed with raw-secret');
+                throw new SubmitDependenciesError(
+                    'ZOLT-PROCESS-001',
+                    'tree failed with raw-secret',
+                    { cause: new Error('raw command output raw-secret') },
+                );
             },
             select: async () => {
                 await Promise.resolve();

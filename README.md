@@ -22,6 +22,9 @@
 
 <br />
 
+> [!IMPORTANT]
+> This action is pre-release. Pin it to a reviewed full commit SHA.
+
 ## Use
 
 Run on the default branch. Pin checkout and this action to full commit SHAs.
@@ -37,6 +40,10 @@ on:
       - "**/zolt-workspace.toml"
       - "**/zolt.lock"
   workflow_dispatch:
+
+concurrency:
+  group: zolt-dependency-submission-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -64,9 +71,13 @@ result to GitHub.
 It includes direct and transitive dependencies, scopes, classifiers, artifact
 types, and child edges. Workspace members are excluded as first-party packages.
 
-Normal analysis is offline from Maven repositories. The only network requests
-download Zolt and submit the snapshot. The action does not build the project or
-run project code.
+Normal analysis is offline from Maven repositories. Network requests download
+Zolt, verify the default-branch tip, and submit the snapshot. The action does
+not build the project or run project code.
+
+Before posting, it verifies that the default branch still points to the run's
+commit. The workflow concurrency group prevents an older run from finishing
+after a newer one.
 
 ## Inputs
 
@@ -76,6 +87,8 @@ run project code.
 | `workspace` | `auto` | `auto`, `true`, or `false` |
 | `github-token` | `github.token` | Token used to submit the snapshot |
 | `validate-lock` | `false` | Run `zolt resolve --locked`; may contact configured repositories |
+| `state` | `submit` | `submit` a lock graph or `clear` its previous snapshot |
+| `manifest-path` | — | Repository-relative `zolt.lock` path; required only with `state: clear` |
 
 ## Workspaces
 
@@ -85,13 +98,29 @@ one. `workspace: false` submits only the selected project.
 Both modern workspaces declared in `zolt.toml` and legacy
 `zolt-workspace.toml` files are supported.
 
+## Removed or renamed lockfiles
+
+Clear the old manifest identity after deleting or renaming a lockfile:
+
+```yaml
+- uses: zoltsh/submit-dependencies@<full-commit-sha>
+  with:
+    state: clear
+    manifest-path: services/old/zolt.lock
+```
+
+This submits an empty snapshot with the old lockfile's stable identity. It does
+not install or run Zolt. For a rename, submit the new path and clear the old
+path. If one workflow submits several locks, append a stable manifest key to
+that job's concurrency group so unrelated locks do not cancel each other.
+
 ## Outputs
 
 | Output | Meaning |
 | :--- | :--- |
 | `snapshot-id` | GitHub dependency snapshot ID |
 | `dependency-count` | Submitted external dependency count |
-| `zolt-version` | Verified Zolt version used |
+| `zolt-version` | Verified Zolt version used; empty for `state: clear` |
 
 ## Runners
 
@@ -100,8 +129,7 @@ Supported targets are `linux-x64`, `linux-arm64`, `macos-x64`, and
 
 ## Compatibility
 
-The action bundles Zolt `0.1.0-zap.20260805.4d8ad3208ada`. It accepts Zolt tree
-schemas 1 and 2 and workspace lock version 5.
+The action accepts Zolt tree schemas 1 and 3 and workspace lock version 5.
 
 ## Read more
 

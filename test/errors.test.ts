@@ -9,7 +9,7 @@ describe('errors', () => {
         const error = new SubmitDependenciesError('ZOLT-TEST-001', 'failed', { cause });
         expect(error.code).toBe('ZOLT-TEST-001');
         expect(publicErrorMessage(error)).toBe('ZOLT-TEST-001: failed');
-        expect(publicErrorMessage('plain')).toBe('plain');
+        expect(publicErrorMessage('plain')).toBe('ZOLT-UNEXPECTED-001: Unexpected action failure.');
         expect(publicErrorMessage(error)).not.toContain('raw command');
     });
 

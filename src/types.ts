@@ -2,10 +2,13 @@ export const RELEASE_TARGETS = ['linux-x64', 'linux-arm64', 'macos-x64', 'macos-
 
 export type ReleaseTarget = (typeof RELEASE_TARGETS)[number];
 export type WorkspaceMode = 'auto' | 'true' | 'false';
+export type SubmissionState = 'clear' | 'submit';
 
 export interface ActionInputs {
     readonly directory: string;
     readonly githubToken: string;
+    readonly manifestPath?: string;
+    readonly state: SubmissionState;
     readonly validateLock: boolean;
     readonly workspace: WorkspaceMode;
 }

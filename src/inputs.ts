@@ -1,7 +1,8 @@
 import type * as core from '@actions/core';
 
 import { SubmitDependenciesError } from './errors';
-import type { ActionInputs, WorkspaceMode } from './types';
+import { isZoltManifestPath } from './manifest-path';
+import type { ActionInputs, SubmissionState, WorkspaceMode } from './types';
 
 export interface InputReader {
     getInput(name: string, options?: core.InputOptions): string;
@@ -16,13 +17,36 @@ export function readInputs(reader: InputReader, maskSecret: (secret: string) => 
     }
     const workspace = parseWorkspace(reader.getInput('workspace'));
     const validateLock = parseBoolean('validate-lock', reader.getInput('validate-lock'));
+    const state = parseState(reader.getInput('state'));
+    const manifestPath = reader.getInput('manifest-path').trim();
     if (githubToken.trim() === '') {
         throw new SubmitDependenciesError(
             'ZOLT-INPUT-002',
             'github-token is empty. Use the default github.token or provide a token with contents: write.',
         );
     }
-    return { directory, githubToken, validateLock, workspace };
+    if (state === 'clear') {
+        if (!isZoltManifestPath(manifestPath)) {
+            throw new SubmitDependenciesError(
+                'ZOLT-INPUT-009',
+                'manifest-path must name the repository-relative zolt.lock to clear.',
+            );
+        }
+        return { directory, githubToken, manifestPath, state, validateLock, workspace };
+    }
+    if (manifestPath !== '') {
+        throw new SubmitDependenciesError('ZOLT-INPUT-009', 'manifest-path is only valid when state is clear.');
+    }
+    return { directory, githubToken, state, validateLock, workspace };
+}
+
+export function parseState(value: string): SubmissionState {
+    const normalized = value.trim() || 'submit';
+    if (normalized === 'submit' || normalized === 'clear') return normalized;
+    throw new SubmitDependenciesError(
+        'ZOLT-INPUT-008',
+        `state must be submit or clear; received ${JSON.stringify(normalized)}.`,
+    );
 }
 
 export function parseWorkspace(value: string): WorkspaceMode {

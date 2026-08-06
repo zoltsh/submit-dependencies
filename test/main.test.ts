@@ -47,7 +47,7 @@ function manifest(mode: 'project' | 'workspace' = 'project'): ConvertedManifest 
         statistics: {
             dependencyEdges: 0, development: 0, direct: 1, externalDependencies: 1, indirect: 0, runtime: 1,
         },
-        treeSchema: mode === 'workspace' ? 2 : 1,
+        treeSchema: mode === 'workspace' ? 3 : 1,
     };
 }
 
@@ -103,6 +103,31 @@ describe('action adapter', () => {
         expect(core.infoMock).toHaveBeenCalledWith('Zolt warning: one warning');
     });
 
+    it('submits a manifest tombstone without installing or running Zolt', async () => {
+        const core = actionCore({
+            'github-token': 'super-secret',
+            'manifest-path': 'services/removed/zolt.lock',
+            state: 'clear',
+        });
+        const dependencies = happyDependencies(core);
+        const install = vi.fn(dependencies.install);
+        const capture = vi.fn(dependencies.capture);
+        const submit = vi.fn(dependencies.submit);
+        const writeSummary = vi.fn(dependencies.writeSummary);
+        await runAction({ ...dependencies, capture, install, submit, writeSummary });
+
+        expect(install).not.toHaveBeenCalled();
+        expect(capture).not.toHaveBeenCalled();
+        expect(dependencies.cleanup).not.toHaveBeenCalled();
+        expect(core.outputs).toEqual(new Map<string, unknown>([
+            ['snapshot-id', 456], ['dependency-count', 0], ['zolt-version', ''],
+        ]));
+        expect(submit).toHaveBeenCalledWith('super-secret', submissionContext, expect.any(Object));
+        const submitted = submit.mock.calls.at(0)?.[2];
+        expect(submitted?.manifests['services/removed/zolt.lock']?.resolved).toEqual({});
+        expect(writeSummary).toHaveBeenCalledWith(expect.stringContaining('Zolt dependency snapshot cleared'));
+    });
+
     it('reports expected failures without leaking the token', async () => {
         const core = actionCore({ 'github-token': 'super-secret' });
         await runAction({
@@ -125,7 +150,7 @@ describe('action adapter', () => {
         expect(core.failed).toEqual([expect.stringContaining('ZOLT-INPUT-002')]);
     });
 
-    it('does not expose unexpected debug stacks and supports the real clock default', async () => {
+    it('does not expose unexpected error messages or debug stacks and supports the real clock default', async () => {
         const core = actionCore({ 'github-token': 'super-secret' });
         const dependencies = happyDependencies(core);
         Reflect.deleteProperty(dependencies, 'now');
@@ -137,7 +162,7 @@ describe('action adapter', () => {
                 throw new Error('debug super-secret');
             },
         });
-        expect(core.failed[0]).toContain('debug ***');
+        expect(core.failed[0]).toBe('ZOLT-UNEXPECTED-001: Unexpected action failure.');
         expect(core.failed[0]).not.toContain('super-secret');
         expect(core.failed[0]).not.toContain('at ');
     });

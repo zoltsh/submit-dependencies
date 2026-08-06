@@ -14,20 +14,22 @@ const snapshot = {
 } satisfies DependencySnapshot;
 
 describe('GitHub snapshot submission', () => {
-    it('submits to the documented endpoint and returns the snapshot ID', async () => {
-        const request = vi.fn(async () => await Promise.resolve({ data: { id: 123, result: 'SUCCESS' } }));
-        const result = await submitSnapshot('masked-token', context, snapshot, { request });
+    it('checks the branch tip immediately before submission and returns the snapshot ID', async () => {
+        const getReference = vi.fn(async () => await Promise.resolve({
+            data: { object: { sha: context.sha, type: 'commit' } },
+        }));
+        const createSnapshot = vi.fn(async () => await Promise.resolve({ data: { id: 123, result: 'SUCCESS' } }));
+        const result = await submitSnapshot('masked-token', context, snapshot, { createSnapshot, getReference });
         expect(result).toEqual({ id: 123, result: 'SUCCESS' });
-        expect(request).toHaveBeenCalledWith(
-            'POST /repos/{owner}/{repo}/dependency-graph/snapshots',
-            { ...snapshot, owner: 'zoltsh', repo: 'demo' },
-        );
+        expect(getReference).toHaveBeenCalledWith('zoltsh', 'demo', 'heads/main');
+        expect(createSnapshot).toHaveBeenCalledWith({ ...snapshot, owner: 'zoltsh', repo: 'demo' });
+        expect(getReference.mock.invocationCallOrder[0]).toBeLessThan(createSnapshot.mock.invocationCallOrder[0] ?? 0);
     });
 
     it('sanitizes request failures without serializing credentials or response bodies', async () => {
         const secret = 'github_pat_secret';
         const client: SnapshotClient = {
-            request: async () => {
+            createSnapshot: async () => {
                 await Promise.resolve();
                 throw Object.assign(new Error(`Authorization Bearer ${secret}`), {
                     request: { method: 'POST', url: `https://api.github.com/repos/zoltsh/demo/dependency-graph/snapshots?token=${secret}` },
@@ -36,6 +38,9 @@ describe('GitHub snapshot submission', () => {
                     responseBody: { token: secret },
                 });
             },
+            getReference: async () => await Promise.resolve({
+                data: { object: { sha: context.sha, type: 'commit' } },
+            }),
         };
         await expect(submitSnapshot(secret, context, snapshot, client)).rejects.toThrow(
             'status 403, POST, /dependency-graph/snapshots, request ABCD:1234',
@@ -49,7 +54,10 @@ describe('GitHub snapshot submission', () => {
 
     it('rejects invalid success responses with a stable error', async () => {
         const client: SnapshotClient = {
-            request: async () => await Promise.resolve({ data: { id: 0, result: 'SUCCESS' } }),
+            createSnapshot: async () => await Promise.resolve({ data: { id: 0, result: 'SUCCESS' } }),
+            getReference: async () => await Promise.resolve({
+                data: { object: { sha: context.sha, type: 'commit' } },
+            }),
         };
         await expect(submitSnapshot('token', context, snapshot, client)).rejects.toThrow('invalid snapshot ID');
     });
@@ -62,36 +70,73 @@ describe('GitHub snapshot submission', () => {
         [500, 'server error'],
     ])('reports HTTP %i with a bounded safe message', async (status, message) => {
         const client: SnapshotClient = {
-            request: async () => {
+            createSnapshot: async () => {
                 await Promise.resolve();
                 throw Object.assign(new Error(message), { status });
             },
+            getReference: async () => await Promise.resolve({
+                data: { object: { sha: context.sha, type: 'commit' } },
+            }),
         };
         await expect(submitSnapshot('masked-token', context, snapshot, client)).rejects.toThrow(
-            `status ${status.toString()}, /dependency-graph/snapshots, ${message}`,
+            `status ${status.toString()}, POST, /dependency-graph/snapshots, ${message}`,
         );
     });
 
     it('sanitizes network interruptions and messages that equal the token', async () => {
         const network: SnapshotClient = {
-            request: async () => {
+            createSnapshot: async () => {
                 await Promise.resolve();
                 throw new Error('connect ECONNRESET api.github.com');
             },
+            getReference: async () => await Promise.resolve({
+                data: { object: { sha: context.sha, type: 'commit' } },
+            }),
         };
         await expect(submitSnapshot('masked-token', context, snapshot, network)).rejects.toThrow(
-            '/dependency-graph/snapshots, connect ECONNRESET api.github.com',
+            'POST, /dependency-graph/snapshots, connect ECONNRESET api.github.com',
         );
         const echo: SnapshotClient = {
-            request: async () => {
+            createSnapshot: async () => {
                 await Promise.resolve();
                 throw new Error('masked-token');
             },
+            getReference: async () => await Promise.resolve({
+                data: { object: { sha: context.sha, type: 'commit' } },
+            }),
         };
         try {
             await submitSnapshot('masked-token', context, snapshot, echo);
         } catch (error) {
             expect(String(error)).not.toContain('masked-token');
         }
+    });
+
+    it('rejects an invalid or advanced default-branch tip without posting', async () => {
+        for (const object of [
+            { sha: 'not-a-sha', type: 'commit' },
+            { sha: 'b'.repeat(40), type: 'commit' },
+            { sha: context.sha, type: 'tag' },
+        ]) {
+            const createSnapshot = vi.fn(async () => await Promise.resolve({ data: { id: 1, result: 'SUCCESS' } }));
+            await expect(submitSnapshot('token', context, snapshot, {
+                createSnapshot,
+                getReference: async () => await Promise.resolve({ data: { object } }),
+            })).rejects.toThrow('ZOLT-GITHUB-003');
+            expect(createSnapshot).not.toHaveBeenCalled();
+        }
+    });
+
+    it('sanitizes reference lookup failures', async () => {
+        const client: SnapshotClient = {
+            createSnapshot: async () => await Promise.resolve({ data: { id: 1, result: 'SUCCESS' } }),
+            getReference: async () => {
+                await Promise.resolve();
+                throw Object.assign(new Error('Resource not accessible by integration'), { status: 403 });
+            },
+        };
+        await expect(submitSnapshot('token', context, snapshot, client)).rejects.toThrow(
+            'status 403, GET, /git/ref, Resource not accessible by integration',
+        );
     });
 });

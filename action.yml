@@ -19,6 +19,13 @@ inputs:
     description: Resolve with --locked before submission; may contact configured repositories
     required: false
     default: "false"
+  state:
+    description: "Snapshot operation: submit or clear"
+    required: false
+    default: submit
+  manifest-path:
+    description: Repository-relative zolt.lock path to clear; required only when state is clear
+    required: false
 
 outputs:
   snapshot-id:
@@ -26,7 +33,7 @@ outputs:
   dependency-count:
     description: Number of external dependencies submitted
   zolt-version:
-    description: Exact Zolt version used by the action
+    description: Exact Zolt version used by the action; empty when clearing
 
 runs:
   using: node24

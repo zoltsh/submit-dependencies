@@ -5,7 +5,8 @@ import type { GitHubSubmissionContext } from './context';
 import type { DependencySnapshot } from './snapshot';
 
 const API_VERSION = '2026-03-10';
-const ENDPOINT = 'POST /repos/{owner}/{repo}/dependency-graph/snapshots';
+const SNAPSHOT_ENDPOINT = 'POST /repos/{owner}/{repo}/dependency-graph/snapshots';
+const REFERENCE_ENDPOINT = 'GET /repos/{owner}/{repo}/git/ref/{ref}';
 
 export interface SnapshotResponse {
     readonly data: {
@@ -14,8 +15,24 @@ export interface SnapshotResponse {
     };
 }
 
+export interface ReferenceResponse {
+    readonly data: {
+        readonly object: {
+            readonly sha: string;
+            readonly type: string;
+        };
+    };
+}
+
 export interface SnapshotClient {
-    request(route: typeof ENDPOINT, parameters: Record<string, unknown>): Promise<SnapshotResponse>;
+    createSnapshot(parameters: SnapshotRequestParameters): Promise<SnapshotResponse>;
+    getReference(owner: string, repository: string, ref: string): Promise<ReferenceResponse>;
+}
+
+export interface SnapshotRequestParameters extends DependencySnapshot {
+    readonly owner: string;
+    readonly repo: string;
+    readonly [key: string]: unknown;
 }
 
 export interface SubmissionResult {
@@ -29,24 +46,47 @@ export async function submitSnapshot(
     snapshot: DependencySnapshot,
     client: SnapshotClient = createSnapshotClient(token),
 ): Promise<SubmissionResult> {
+    const branchRef = context.ref.slice('refs/'.length);
+    let reference: ReferenceResponse;
     try {
-        const response = await client.request(ENDPOINT, {
+        reference = await client.getReference(context.owner, context.repository, branchRef);
+    } catch (error) {
+        throw sanitizedGitHubError(error, token, 'GET', '/git/ref');
+    }
+    if (
+        reference.data.object.type !== 'commit'
+        || !/^[a-fA-F0-9]{40}$/u.test(reference.data.object.sha)
+    ) {
+        throw new SubmitDependenciesError(
+            'ZOLT-GITHUB-003',
+            'GitHub returned an invalid default-branch reference. No dependency snapshot was submitted.',
+        );
+    }
+    if (reference.data.object.sha.toLowerCase() !== context.sha) {
+        throw new SubmitDependenciesError(
+            'ZOLT-GITHUB-003',
+            'The default branch advanced after this run started. Rerun the workflow; no stale dependency snapshot was submitted.',
+        );
+    }
+    try {
+        const parameters: SnapshotRequestParameters = {
             ...snapshot,
             owner: context.owner,
             repo: context.repository,
-        });
+        };
+        const response = await client.createSnapshot(parameters);
         if (!Number.isSafeInteger(response.data.id) || response.data.id < 1) {
             throw new Error('GitHub returned an invalid snapshot ID.');
         }
         return { id: response.data.id, result: response.data.result };
     } catch (error) {
         if (error instanceof SubmitDependenciesError) throw error;
-        throw sanitizedSubmissionError(error, token);
+        throw sanitizedGitHubError(error, token, 'POST', '/dependency-graph/snapshots');
     }
 }
 
 function createSnapshotClient(token: string): SnapshotClient {
-    return getOctokit(token, {
+    const octokit = getOctokit(token, {
         request: {
             headers: {
                 accept: 'application/vnd.github+json',
@@ -54,6 +94,14 @@ function createSnapshotClient(token: string): SnapshotClient {
             },
         },
     });
+    return {
+        createSnapshot: async (parameters) => await octokit.request(SNAPSHOT_ENDPOINT, parameters),
+        getReference: async (owner, repository, ref) => await octokit.request(REFERENCE_ENDPOINT, {
+            owner,
+            ref,
+            repo: repository,
+        }),
+    };
 }
 
 interface RequestFailure {
@@ -63,12 +111,16 @@ interface RequestFailure {
     readonly status?: unknown;
 }
 
-function sanitizedSubmissionError(error: unknown, token: string): SubmitDependenciesError {
+function sanitizedGitHubError(
+    error: unknown,
+    token: string,
+    expectedMethod: 'GET' | 'POST',
+    endpoint: string,
+): SubmitDependenciesError {
     const value = typeof error === 'object' && error !== null ? error as RequestFailure : {};
     const status = number(value.status) ?? number(value.response?.status);
     const requestId = safeHeader(value.response?.headers, 'x-github-request-id');
-    const method = safeMethod(value.request?.method);
-    const endpoint = '/dependency-graph/snapshots';
+    const method = safeMethod(value.request?.method) ?? expectedMethod;
     const message = safeMessage(value.message, token);
     const details = [
         status === undefined ? undefined : `status ${status.toString()}`,
@@ -79,7 +131,7 @@ function sanitizedSubmissionError(error: unknown, token: string): SubmitDependen
     ].filter((part): part is string => part !== undefined);
     return new SubmitDependenciesError(
         'ZOLT-GITHUB-002',
-        `GitHub rejected the dependency snapshot (${details.join(', ')}). Verify contents: write permission and the repository dependency graph settings.`,
+        `GitHub API request failed (${details.join(', ')}). Verify contents: write permission and the repository dependency graph settings.`,
     );
 }
 

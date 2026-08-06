@@ -1,3 +1,5 @@
+import { SubmitDependenciesError } from './errors';
+
 export const MAX_PUBLIC_MESSAGE_CHARACTERS = 4096;
 
 const MAX_PUBLIC_SAMPLE_BYTES = 64 * 1024;
@@ -30,7 +32,9 @@ export function publicBufferText(
 }
 
 export function publicErrorMessage(error: unknown, secrets: readonly string[] = []): string {
-    const value = error instanceof Error ? error.message || error.name : String(error);
+    const value = error instanceof SubmitDependenciesError
+        ? error.message
+        : 'ZOLT-UNEXPECTED-001: Unexpected action failure.';
     return publicText(value, secrets);
 }
 

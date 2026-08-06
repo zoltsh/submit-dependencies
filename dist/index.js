@@ -34077,9 +34077,9 @@ function decodeTree(value) {
     const schemaVersion = integer(root.schemaVersion, 'tree.schemaVersion');
     if (schemaVersion === 1)
         return decodeV1(root);
-    if (schemaVersion === 2)
-        return decodeV2(root);
-    throw contractError(`The action understands tree schema 1 and 2, but Zolt emitted schema ${schemaVersion.toString()}. Upgrade zoltsh/submit-dependencies.`);
+    if (schemaVersion === 3)
+        return decodeV3(root);
+    throw contractError(`The action understands tree schema 1 and 3, but Zolt emitted schema ${schemaVersion.toString()}. Upgrade zoltsh/submit-dependencies.`);
 }
 function decodeV1(root) {
     assertKeys(root, 'tree schema 1', ['schemaVersion', 'command', 'project', 'packages', 'roots', 'conflicts', 'policyEffects']);
@@ -34096,33 +34096,65 @@ function decodeV1(root) {
     validateRoots(root.roots, packages);
     array(root.conflicts, 'tree.conflicts');
     array(root.policyEffects, 'tree.policyEffects');
-    return { mode: 'project', packages, schemaVersion: 1, workspaceMembers: [] };
+    return {
+        mode: 'project',
+        packages,
+        project: { artifact: name, group, version },
+        schemaVersion: 1,
+        workspaceMembers: [],
+    };
 }
-function decodeV2(root) {
-    assertKeys(root, 'tree schema 2', ['schemaVersion', 'command', 'mode', 'lockVersion', 'workspace', 'packages', 'roots']);
+function decodeV3(root) {
+    assertKeys(root, 'tree schema 3', ['schemaVersion', 'command', 'mode', 'lockVersion', 'workspace', 'packages', 'roots']);
     tree_requireLiteral(root.command, 'tree', 'tree.command');
     tree_requireLiteral(root.mode, 'workspace', 'tree.mode');
     const lockVersion = integer(root.lockVersion, 'tree.lockVersion');
     if (lockVersion !== 5) {
-        throw contractError(`Tree schema 2 lockVersion ${lockVersion.toString()} is unsupported; expected 5.`);
+        throw contractError(`Tree schema 3 lockVersion ${lockVersion.toString()} is unsupported; expected 5.`);
     }
     const workspace = object(root.workspace, 'tree.workspace');
     assertKeys(workspace, 'tree.workspace', ['name', 'members']);
     string(workspace.name, 'tree.workspace.name');
-    const workspaceMembers = sortedUniqueStrings(workspace.members, 'tree.workspace.members');
-    const packages = decodePackages(root.packages, 2, workspaceMembers);
+    const workspaceMembers = decodeWorkspaceMembers(workspace.members);
+    const packages = decodePackages(root.packages, 3, workspaceMembers);
     validateRoots(root.roots, packages);
-    return { lockVersion, mode: 'workspace', packages, schemaVersion: 2, workspaceMembers };
+    return { lockVersion, mode: 'workspace', packages, schemaVersion: 3, workspaceMembers };
+}
+function decodeWorkspaceMembers(value) {
+    const members = array(value, 'tree.workspace.members').map((item, index) => {
+        const label = `tree.workspace.members[${index.toString()}]`;
+        const member = object(item, label);
+        assertKeys(member, label, ['path', 'group', 'name', 'version', 'type', 'dependencies']);
+        const path = string(member.path, `${label}.path`);
+        const id = parsePackageId(`${string(member.group, `${label}.group`)}:${string(member.name, `${label}.name`)}`, label);
+        const version = string(member.version, `${label}.version`);
+        const variant = parseVariant(string(member.type, `${label}.type`), `${label}.type`);
+        if (variant.classifier !== undefined)
+            throw contractError(`${label}.type cannot include a classifier.`);
+        const artifact = { ...id, type: variant.type, version };
+        const dependencies = sortedUniqueStrings(member.dependencies, `${label}.dependencies`);
+        return { artifact, artifactKey: artifactKey(artifact), dependencies, path };
+    });
+    const paths = members.map((member) => member.path);
+    const sortedPaths = [...new Set(paths)].sort();
+    if (sortedPaths.length !== paths.length || sortedPaths.some((path, index) => path !== paths[index])) {
+        throw contractError('tree.workspace.members must be sorted by unique path.');
+    }
+    if (new Set(members.map((member) => member.artifactKey)).size !== members.length) {
+        throw contractError('tree.workspace.members contains duplicate package identities.');
+    }
+    return members;
 }
 function decodePackages(value, schema, workspaceMembers) {
-    const knownMembers = new Set(workspaceMembers);
+    const membersByPath = new Map(workspaceMembers.map((member) => [member.path, member]));
+    const memberByArtifact = new Map(workspaceMembers.map((member) => [member.artifactKey, member]));
     const nodes = new Set();
     return array(value, 'tree.packages').map((item, index) => {
         const label = `tree.packages[${index.toString()}]`;
         const pkg = object(item, label);
         assertKeys(pkg, label, schema === 1
             ? ['id', 'version', 'coordinate', 'scope', 'direct', 'dependencies', 'policies']
-            : ['id', 'version', 'coordinate', 'scope', 'direct', 'members', 'dependencies'], ['variant']);
+            : ['id', 'version', 'coordinate', 'scope', 'direct', 'members', 'dependencies'], schema === 1 ? ['variant'] : ['variant', 'workspace']);
         const id = parsePackageId(string(pkg.id, `${label}.id`), `${label}.id`);
         const version = string(pkg.version, `${label}.version`);
         if (version.includes(':'))
@@ -34147,14 +34179,38 @@ function decodePackages(value, schema, workspaceMembers) {
             throw contractError(`${label} duplicates a tree-node identity.`);
         nodes.add(nodeKey);
         const dependencies = sortedUniqueStrings(pkg.dependencies, `${label}.dependencies`);
-        const members = schema === 2 ? sortedUniqueStrings(pkg.members, `${label}.members`) : [];
+        const members = schema === 3 ? sortedUniqueStrings(pkg.members, `${label}.members`) : [];
         for (const member of members) {
-            if (!knownMembers.has(member))
+            if (!membersByPath.has(member))
                 throw contractError(`${label}.members contains unknown workspace member ${member}.`);
+        }
+        const workspace = schema === 3 && pkg.workspace !== undefined
+            ? string(pkg.workspace, `${label}.workspace`)
+            : undefined;
+        if (workspace !== undefined) {
+            const owner = membersByPath.get(workspace);
+            if (owner === undefined)
+                throw contractError(`${label}.workspace names unknown workspace member ${workspace}.`);
+            if (owner.artifactKey !== artifactKey(artifact)) {
+                throw contractError(`${label}.workspace package identity disagrees with member ${workspace}.`);
+            }
+        }
+        const matchingMember = memberByArtifact.get(artifactKey(artifact));
+        if (schema === 3 && matchingMember !== undefined && workspace !== matchingMember.path) {
+            throw contractError(`${label} matches workspace member ${matchingMember.path} but does not identify that owner.`);
         }
         if (schema === 1)
             sortedUniqueStrings(pkg.policies, `${label}.policies`);
-        return { artifact, coordinate, dependencies, direct: decode_boolean(pkg.direct, `${label}.direct`), members, nodeKey, scope };
+        return {
+            artifact,
+            coordinate,
+            dependencies,
+            direct: decode_boolean(pkg.direct, `${label}.direct`),
+            members,
+            nodeKey,
+            scope,
+            ...workspace === undefined ? {} : { workspace },
+        };
     });
 }
 function validateRoots(value, packages) {
@@ -34184,22 +34240,34 @@ function normalizeForGitHub(value, policy) {
     return new packageurl_js.PackageURL('maven', parsed.packageUrl.namespace, parsed.packageUrl.name, parsed.packageUrl.version, Object.keys(qualifiers).length === 0 ? undefined : qualifiers).toString();
 }
 
+;// CONCATENATED MODULE: ./src/manifest-path.ts
+function isZoltManifestPath(value) {
+    return value !== ''
+        && !value.startsWith('/')
+        && !value.includes('\\')
+        && !value.split('/').includes('..')
+        && (value === 'zolt.lock' || value.endsWith('/zolt.lock'));
+}
+
 ;// CONCATENATED MODULE: ./src/converter/convert.ts
 
 
 
 
+
+const ROOT_GRAPH_NODE = 'zolt:root';
 function convert(input) {
     validateManifestPath(input.manifestPath);
     const tree = decodeTree(input.tree);
     const bom = decodeCycloneDx(input.bom);
-    const firstPartyRefs = firstPartyComponentRefs(tree, bom);
-    const componentPurls = indexComponentPurls(bom, firstPartyRefs, input.purlPolicy);
-    const mappings = mapTreePackages(tree, bom, firstPartyRefs, componentPurls.byArtifact);
+    const firstParty = firstPartyComponents(tree, bom);
+    const componentPurls = indexComponentPurls(bom, firstParty.refs, input.purlPolicy);
+    const mappings = mapTreePackages(tree, firstParty, componentPurls.byArtifact);
     const accumulators = aggregateTree(tree, mappings);
-    const treeGraph = treeDependencyGraph(tree, mappings, accumulators);
-    const bomGraph = bomDependencyGraph(bom, firstPartyRefs, componentPurls.byRef);
+    const treeGraph = treeDependencyGraph(tree, mappings, accumulators, firstParty);
+    const bomGraph = bomDependencyGraph(bom, firstParty, componentPurls.byRef);
     compareGraphs(treeGraph, bomGraph);
+    requireReachability(treeGraph, tree.mode === 'project' ? [ROOT_GRAPH_NODE] : firstParty.purlByPath.values(), accumulators);
     const dependencies = new Map();
     for (const purl of [...accumulators.keys()].sort()) {
         const value = mapValue(accumulators, purl, `Missing accumulator for ${purl}.`);
@@ -34229,22 +34297,50 @@ function convert(input) {
         treeSchema: tree.schemaVersion,
     };
 }
-function firstPartyComponentRefs(tree, bom) {
-    if (tree.mode === 'project')
-        return new Set();
+function firstPartyComponents(tree, bom) {
+    if (tree.mode === 'project') {
+        const project = tree.project;
+        if (project === undefined || bom.root.artifact === undefined) {
+            throw graphError('ZOLT-GRAPH-008', 'The project tree and CycloneDX root do not expose matching Maven identities.');
+        }
+        if (project.group !== bom.root.artifact.group
+            || project.artifact !== bom.root.artifact.artifact
+            || project.version !== bom.root.artifact.version) {
+            throw graphError('ZOLT-GRAPH-008', 'The project tree and CycloneDX root Maven identities disagree.');
+        }
+        return { purlByPath: new Map(), purlByRef: new Map(), refs: new Set() };
+    }
     const roots = bom.dependencies.get(bom.root.ref) ?? [];
     if (roots.length !== tree.workspaceMembers.length) {
         throw graphError('ZOLT-GRAPH-008', `Workspace tree lists ${tree.workspaceMembers.length.toString()} members but CycloneDX identifies ${roots.length.toString()}.`);
     }
-    const refs = new Set();
+    const rootsByArtifact = new Map();
     for (const ref of roots) {
         const component = bom.components.get(ref);
-        if (component?.purl === undefined) {
-            throw graphError('ZOLT-GRAPH-008', `Workspace member ${ref} has no canonical Maven PURL.`);
+        if (component?.purl === undefined || component.artifactKey === undefined) {
+            throw graphError('ZOLT-GRAPH-008', `Workspace root child ${ref} has no canonical Maven PURL.`);
         }
-        refs.add(ref);
+        if (rootsByArtifact.has(component.artifactKey)) {
+            throw graphError('ZOLT-GRAPH-008', `Workspace root identifies duplicate member package ${component.purl}.`);
+        }
+        rootsByArtifact.set(component.artifactKey, { purl: component.purl, ref });
     }
-    return refs;
+    const purlByPath = new Map();
+    const purlByRef = new Map();
+    const refs = new Set();
+    for (const member of tree.workspaceMembers) {
+        const component = rootsByArtifact.get(member.artifactKey);
+        if (component === undefined) {
+            throw graphError('ZOLT-GRAPH-008', `CycloneDX root does not identify workspace member ${member.path}.`);
+        }
+        purlByPath.set(member.path, component.purl);
+        purlByRef.set(component.ref, component.purl);
+        refs.add(component.ref);
+    }
+    if (refs.size !== roots.length) {
+        throw graphError('ZOLT-GRAPH-008', 'CycloneDX root contains a component that is not a declared workspace member.');
+    }
+    return { purlByPath, purlByRef, refs };
 }
 function indexComponentPurls(bom, firstPartyRefs, policy) {
     const byArtifact = new Map();
@@ -34263,18 +34359,15 @@ function indexComponentPurls(bom, firstPartyRefs, policy) {
     }
     return { byArtifact, byRef };
 }
-function mapTreePackages(tree, bom, firstPartyRefs, externalByArtifact) {
-    const firstPartyArtifacts = new Set();
-    for (const ref of firstPartyRefs) {
-        const key = bom.components.get(ref)?.artifactKey;
-        if (key !== undefined)
-            firstPartyArtifacts.add(key);
-    }
+function mapTreePackages(tree, firstParty, externalByArtifact) {
     const mappings = new Map();
     for (const pkg of tree.packages) {
         const key = artifactIdentity(pkg);
-        if (firstPartyArtifacts.has(key)) {
-            mappings.set(pkg.nodeKey, { firstParty: true });
+        if (pkg.workspace !== undefined) {
+            const purl = firstParty.purlByPath.get(pkg.workspace);
+            if (purl === undefined)
+                throw graphError('ZOLT-GRAPH-008', `Tree package ${pkg.coordinate} has unknown owner ${pkg.workspace}.`);
+            mappings.set(pkg.nodeKey, { firstParty: true, purl });
             continue;
         }
         const candidates = externalByArtifact.get(key) ?? new Set();
@@ -34295,7 +34388,7 @@ function aggregateTree(tree, mappings) {
     const accumulators = new Map();
     for (const pkg of tree.packages) {
         const mapping = mapValue(mappings, pkg.nodeKey, `Missing package mapping for ${pkg.coordinate}.`);
-        if (mapping.firstParty || mapping.purl === undefined)
+        if (mapping.firstParty)
             continue;
         const accumulator = accumulators.get(mapping.purl) ?? { children: new Set(), direct: false, runtime: false };
         accumulator.direct ||= pkg.direct;
@@ -34304,24 +34397,45 @@ function aggregateTree(tree, mappings) {
     }
     return accumulators;
 }
-function treeDependencyGraph(tree, mappings, accumulators) {
+function treeDependencyGraph(tree, mappings, accumulators, firstParty) {
     const nodes = new Map(tree.packages.map((pkg) => [pkg.nodeKey, pkg]));
-    const graph = new Map([...accumulators.keys()].map((purl) => [purl, new Set()]));
+    const graph = new Map([...new Set([ROOT_GRAPH_NODE, ...accumulators.keys(), ...firstParty.purlByPath.values()])]
+        .map((purl) => [purl, new Set()]));
+    if (tree.mode === 'workspace') {
+        const root = mapValue(graph, ROOT_GRAPH_NODE, 'Missing workspace root graph node.');
+        for (const memberPurl of firstParty.purlByPath.values())
+            root.add(memberPurl);
+        for (const member of tree.workspaceMembers) {
+            const memberPurl = mapValue(firstParty.purlByPath, member.path, `Missing member mapping for ${member.path}.`);
+            for (const edge of member.dependencies) {
+                const target = resolveEdge(edge, tree.packages, nodes);
+                const targetMapping = mapValue(mappings, target.nodeKey, `Missing package mapping for ${target.coordinate}.`);
+                if (memberPurl === targetMapping.purl) {
+                    throw graphError('ZOLT-GRAPH-010', `Workspace member ${member.path} has a self-edge ${edge}.`);
+                }
+                mapValue(graph, memberPurl, `Missing tree graph node for ${memberPurl}.`).add(targetMapping.purl);
+            }
+        }
+    }
     for (const source of tree.packages) {
         const sourceMapping = mapValue(mappings, source.nodeKey, `Missing package mapping for ${source.coordinate}.`);
+        if (source.direct && tree.mode === 'project') {
+            mapValue(graph, ROOT_GRAPH_NODE, 'Missing project root graph node.').add(sourceMapping.purl);
+        }
         for (const edge of source.dependencies) {
             const target = resolveEdge(edge, tree.packages, nodes);
             const targetMapping = mapValue(mappings, target.nodeKey, `Missing package mapping for ${target.coordinate}.`);
-            if (sourceMapping.firstParty || sourceMapping.purl === undefined || targetMapping.firstParty)
-                continue;
-            if (targetMapping.purl === undefined || !accumulators.has(targetMapping.purl)) {
+            if (!targetMapping.firstParty && !accumulators.has(targetMapping.purl)) {
                 throw graphError('ZOLT-GRAPH-009', `Dependency edge ${edge} does not target a submitted package.`);
             }
             if (sourceMapping.purl === targetMapping.purl) {
                 throw graphError('ZOLT-GRAPH-010', `Dependency edge ${edge} becomes a self-edge after PURL normalization.`);
             }
             mapValue(graph, sourceMapping.purl, `Missing tree graph node for ${sourceMapping.purl}.`).add(targetMapping.purl);
-            mapValue(accumulators, sourceMapping.purl, `Missing accumulator for ${sourceMapping.purl}.`).children.add(targetMapping.purl);
+            if (!sourceMapping.firstParty && !targetMapping.firstParty) {
+                mapValue(accumulators, sourceMapping.purl, `Missing accumulator for ${sourceMapping.purl}.`)
+                    .children.add(targetMapping.purl);
+            }
         }
     }
     return graph;
@@ -34355,20 +34469,18 @@ function resolveEdge(edge, packages, nodes) {
         throw graphError('ZOLT-GRAPH-011', `Legacy dependency edge ${edge} is dangling.`);
     return candidate;
 }
-function bomDependencyGraph(bom, firstPartyRefs, purlsByRef) {
+function bomDependencyGraph(bom, firstParty, purlsByRef) {
     const graph = new Map();
-    for (const purl of purlsByRef.values())
+    for (const purl of [ROOT_GRAPH_NODE, ...purlsByRef.values(), ...firstParty.purlByPath.values()]) {
         graph.set(purl, new Set());
+    }
+    const allPurls = new Map([[bom.root.ref, ROOT_GRAPH_NODE], ...purlsByRef, ...firstParty.purlByRef]);
     for (const [sourceRef, targets] of bom.dependencies) {
-        if (sourceRef === bom.root.ref || firstPartyRefs.has(sourceRef))
-            continue;
-        const source = purlsByRef.get(sourceRef);
+        const source = allPurls.get(sourceRef);
         if (source === undefined)
             throw graphError('ZOLT-GRAPH-005', `CycloneDX source ${sourceRef} has no submitted PURL.`);
         for (const targetRef of targets) {
-            if (firstPartyRefs.has(targetRef))
-                continue;
-            const target = purlsByRef.get(targetRef);
+            const target = allPurls.get(targetRef);
             if (target === undefined)
                 throw graphError('ZOLT-GRAPH-005', `CycloneDX target ${targetRef} has no submitted PURL.`);
             if (source === target)
@@ -34377,6 +34489,25 @@ function bomDependencyGraph(bom, firstPartyRefs, purlsByRef) {
         }
     }
     return graph;
+}
+function requireReachability(graph, roots, externals) {
+    const reached = new Set(roots);
+    const pending = [...reached];
+    while (pending.length !== 0) {
+        const source = pending.shift();
+        if (source === undefined)
+            break;
+        for (const target of graph.get(source) ?? []) {
+            if (!reached.has(target)) {
+                reached.add(target);
+                pending.push(target);
+            }
+        }
+    }
+    const unreachable = [...externals.keys()].filter((purl) => !reached.has(purl)).sort();
+    if (unreachable.length !== 0) {
+        throw graphError('ZOLT-GRAPH-016', `Workspace graph contains packages unreachable from every member: ${unreachable.join(', ')}. No dependency snapshot was submitted.`);
+    }
 }
 function compareGraphs(tree, bom) {
     const onlyTree = [];
@@ -34403,7 +34534,7 @@ function runtimeScope(scope) {
     return scope === 'compile' || scope === 'runtime' || scope === 'provided';
 }
 function validateManifestPath(value) {
-    if (value === '' || value.startsWith('/') || value.includes('\\') || value.split('/').includes('..')) {
+    if (!isZoltManifestPath(value)) {
         throw graphError('ZOLT-GRAPH-013', `Manifest path ${JSON.stringify(value)} is not repository-relative.`);
     }
 }
@@ -34524,7 +34655,7 @@ function events_string(value, label) {
 
 async function resolveExecutionContext(inputs, environment = process.env) {
     const [repository, event] = await Promise.all([
-        resolveRepositoryDirectory(environment.GITHUB_WORKSPACE, inputs.directory),
+        resolveRepositoryDirectory(environment.GITHUB_WORKSPACE, inputs.state === 'clear' ? '.' : inputs.directory),
         enforceEventPolicy({
             eventName: environment.GITHUB_EVENT_NAME,
             eventPath: environment.GITHUB_EVENT_PATH,
@@ -34586,7 +34717,7 @@ function buildSnapshot(input) {
     const resolved = {};
     for (const [purl, dependency] of input.manifest.dependencies) {
         resolved[purl] = {
-            dependencies: dependency.dependencies,
+            dependencies: [...dependency.dependencies],
             package_url: dependency.packageUrl,
             relationship: dependency.relationship,
             scope: dependency.scope,
@@ -34596,16 +34727,13 @@ function buildSnapshot(input) {
         lock_version: input.manifest.lockVersion ?? 'unknown',
         mode: input.manifest.mode,
         sbom_spec: '1.5',
+        state: 'submit',
         tree_schema: input.manifest.treeSchema,
         zolt_version: input.zoltVersion,
     };
     return {
         detector: { metadata, name: DETECTOR_NAME, url: DETECTOR_URL, version: ACTION_VERSION },
-        job: {
-            correlator: manifestCorrelator(input.manifest.sourceLocation),
-            html_url: `${input.context.serverUrl}/${input.context.owner}/${input.context.repository}/actions/runs/${input.context.runId}`,
-            id: `${input.context.runId}.${input.context.attempt}`,
-        },
+        job: snapshotJob(input.context, input.manifest.sourceLocation),
         manifests: {
             [input.manifest.sourceLocation]: {
                 file: { source_location: input.manifest.sourceLocation },
@@ -34617,6 +34745,35 @@ function buildSnapshot(input) {
         scanned: input.scanned.toISOString(),
         sha: input.context.sha,
         version: 0,
+    };
+}
+function buildClearSnapshot(input) {
+    return {
+        detector: {
+            metadata: { state: 'clear' },
+            name: DETECTOR_NAME,
+            url: DETECTOR_URL,
+            version: ACTION_VERSION,
+        },
+        job: snapshotJob(input.context, input.manifestPath),
+        manifests: {
+            [input.manifestPath]: {
+                file: { source_location: input.manifestPath },
+                name: input.manifestPath,
+                resolved: {},
+            },
+        },
+        ref: input.context.ref,
+        scanned: input.scanned.toISOString(),
+        sha: input.context.sha,
+        version: 0,
+    };
+}
+function snapshotJob(context, manifestPath) {
+    return {
+        correlator: manifestCorrelator(manifestPath),
+        html_url: `${context.serverUrl}/${context.owner}/${context.repository}/actions/runs/${context.runId}`,
+        id: `${context.runId}.${context.attempt}`,
     };
 }
 function manifestCorrelator(manifestPath) {
@@ -39335,14 +39492,31 @@ function getOctokit(token, options, ...additionalPlugins) {
 
 
 const API_VERSION = '2026-03-10';
-const ENDPOINT = 'POST /repos/{owner}/{repo}/dependency-graph/snapshots';
+const SNAPSHOT_ENDPOINT = 'POST /repos/{owner}/{repo}/dependency-graph/snapshots';
+const REFERENCE_ENDPOINT = 'GET /repos/{owner}/{repo}/git/ref/{ref}';
 async function submitSnapshot(token, context, snapshot, client = createSnapshotClient(token)) {
+    const branchRef = context.ref.slice('refs/'.length);
+    let reference;
     try {
-        const response = await client.request(ENDPOINT, {
+        reference = await client.getReference(context.owner, context.repository, branchRef);
+    }
+    catch (error) {
+        throw sanitizedGitHubError(error, token, 'GET', '/git/ref');
+    }
+    if (reference.data.object.type !== 'commit'
+        || !/^[a-fA-F0-9]{40}$/u.test(reference.data.object.sha)) {
+        throw new SubmitDependenciesError('ZOLT-GITHUB-003', 'GitHub returned an invalid default-branch reference. No dependency snapshot was submitted.');
+    }
+    if (reference.data.object.sha.toLowerCase() !== context.sha) {
+        throw new SubmitDependenciesError('ZOLT-GITHUB-003', 'The default branch advanced after this run started. Rerun the workflow; no stale dependency snapshot was submitted.');
+    }
+    try {
+        const parameters = {
             ...snapshot,
             owner: context.owner,
             repo: context.repository,
-        });
+        };
+        const response = await client.createSnapshot(parameters);
         if (!Number.isSafeInteger(response.data.id) || response.data.id < 1) {
             throw new Error('GitHub returned an invalid snapshot ID.');
         }
@@ -39351,11 +39525,11 @@ async function submitSnapshot(token, context, snapshot, client = createSnapshotC
     catch (error) {
         if (error instanceof SubmitDependenciesError)
             throw error;
-        throw sanitizedSubmissionError(error, token);
+        throw sanitizedGitHubError(error, token, 'POST', '/dependency-graph/snapshots');
     }
 }
 function createSnapshotClient(token) {
-    return getOctokit(token, {
+    const octokit = getOctokit(token, {
         request: {
             headers: {
                 accept: 'application/vnd.github+json',
@@ -39363,13 +39537,20 @@ function createSnapshotClient(token) {
             },
         },
     });
+    return {
+        createSnapshot: async (parameters) => await octokit.request(SNAPSHOT_ENDPOINT, parameters),
+        getReference: async (owner, repository, ref) => await octokit.request(REFERENCE_ENDPOINT, {
+            owner,
+            ref,
+            repo: repository,
+        }),
+    };
 }
-function sanitizedSubmissionError(error, token) {
+function sanitizedGitHubError(error, token, expectedMethod, endpoint) {
     const value = typeof error === 'object' && error !== null ? error : {};
     const status = number(value.status) ?? number(value.response?.status);
     const requestId = safeHeader(value.response?.headers, 'x-github-request-id');
-    const method = safeMethod(value.request?.method);
-    const endpoint = '/dependency-graph/snapshots';
+    const method = safeMethod(value.request?.method) ?? expectedMethod;
     const message = safeMessage(value.message, token);
     const details = [
         status === undefined ? undefined : `status ${status.toString()}`,
@@ -39378,7 +39559,7 @@ function sanitizedSubmissionError(error, token) {
         requestId === undefined ? undefined : `request ${requestId}`,
         message,
     ].filter((part) => part !== undefined);
-    return new SubmitDependenciesError('ZOLT-GITHUB-002', `GitHub rejected the dependency snapshot (${details.join(', ')}). Verify contents: write permission and the repository dependency graph settings.`);
+    return new SubmitDependenciesError('ZOLT-GITHUB-002', `GitHub API request failed (${details.join(', ')}). Verify contents: write permission and the repository dependency graph settings.`);
 }
 function number(value) {
     return typeof value === 'number' && Number.isSafeInteger(value) ? value : undefined;
@@ -39426,11 +39607,26 @@ function renderSummary(input) {
         '',
     ].join('\n');
 }
+function renderClearSummary(input) {
+    return [
+        '## Zolt dependency snapshot cleared',
+        '',
+        '| Field | Value |',
+        '| --- | ---: |',
+        `| Snapshot ID | ${input.snapshotId.toString()} |`,
+        `| Manifest | \`${escapeCode(input.manifestPath)}\` |`,
+        '| External dependencies | 0 |',
+        '',
+        'Submitted an empty snapshot with the manifest\'s stable identity. Zolt was not installed or run.',
+        '',
+    ].join('\n');
+}
 function escapeCode(value) {
     return value.replace(/`/gu, '\\`').replace(/[\r\n]/gu, ' ');
 }
 
 ;// CONCATENATED MODULE: ./src/inputs.ts
+
 
 function readInputs(reader, maskSecret = () => undefined) {
     const githubToken = reader.getInput('github-token');
@@ -39442,10 +39638,27 @@ function readInputs(reader, maskSecret = () => undefined) {
     }
     const workspace = parseWorkspace(reader.getInput('workspace'));
     const validateLock = parseBoolean('validate-lock', reader.getInput('validate-lock'));
+    const state = parseState(reader.getInput('state'));
+    const manifestPath = reader.getInput('manifest-path').trim();
     if (githubToken.trim() === '') {
         throw new SubmitDependenciesError('ZOLT-INPUT-002', 'github-token is empty. Use the default github.token or provide a token with contents: write.');
     }
-    return { directory, githubToken, validateLock, workspace };
+    if (state === 'clear') {
+        if (!isZoltManifestPath(manifestPath)) {
+            throw new SubmitDependenciesError('ZOLT-INPUT-009', 'manifest-path must name the repository-relative zolt.lock to clear.');
+        }
+        return { directory, githubToken, manifestPath, state, validateLock, workspace };
+    }
+    if (manifestPath !== '') {
+        throw new SubmitDependenciesError('ZOLT-INPUT-009', 'manifest-path is only valid when state is clear.');
+    }
+    return { directory, githubToken, state, validateLock, workspace };
+}
+function parseState(value) {
+    const normalized = value.trim() || 'submit';
+    if (normalized === 'submit' || normalized === 'clear')
+        return normalized;
+    throw new SubmitDependenciesError('ZOLT-INPUT-008', `state must be submit or clear; received ${JSON.stringify(normalized)}.`);
 }
 function parseWorkspace(value) {
     const normalized = value.trim() || 'auto';
@@ -39726,6 +39939,7 @@ const external_node_child_process_namespaceObject = __WEBPACK_EXTERNAL_createReq
 // EXTERNAL MODULE: external "node:util"
 var external_node_util_ = __nccwpck_require__(7975);
 ;// CONCATENATED MODULE: ./src/public-output.ts
+
 const MAX_PUBLIC_MESSAGE_CHARACTERS = 4096;
 const MAX_PUBLIC_SAMPLE_BYTES = 64 * 1024;
 const SENSITIVE_NAME = /(?:ACCESS_KEY|API_KEY|AUTH|CREDENTIAL|PASSWORD|PASSWD|PRIVATE_KEY|SECRET|TOKEN)/iu;
@@ -39746,7 +39960,9 @@ function publicBufferText(value, secrets, limit = MAX_PUBLIC_MESSAGE_CHARACTERS)
     return publicText(value.subarray(0, MAX_PUBLIC_SAMPLE_BYTES).toString('utf8'), secrets, limit);
 }
 function publicErrorMessage(error, secrets = []) {
-    const value = error instanceof Error ? error.message || error.name : String(error);
+    const value = error instanceof SubmitDependenciesError
+        ? error.message
+        : 'ZOLT-UNEXPECTED-001: Unexpected action failure.';
     return publicText(value, secrets);
 }
 function publicText(value, secrets = [], limit = MAX_PUBLIC_MESSAGE_CHARACTERS) {
@@ -40188,6 +40404,28 @@ async function runAction(dependencies = {}) {
             (dependencies.resolveContext ?? resolveExecutionContext)(inputs, environment),
             Promise.resolve((dependencies.resolveSubmissionContext ?? readGitHubSubmissionContext)(environment)),
         ]);
+        if (inputs.state === 'clear') {
+            const manifestPath = inputs.manifestPath;
+            if (manifestPath === undefined) {
+                throw new SubmitDependenciesError('ZOLT-INPUT-009', 'manifest-path is required when state is clear.');
+            }
+            actionCore.info(`Validated ${manifestPath} tombstone on ${context.event.defaultBranch}.`);
+            const snapshot = buildClearSnapshot({
+                context: submissionContext,
+                manifestPath,
+                scanned: (dependencies.now ?? (() => new Date()))(),
+            });
+            const submission = await (dependencies.submit ?? submitSnapshot)(inputs.githubToken, submissionContext, snapshot);
+            actionCore.setOutput('snapshot-id', submission.id);
+            actionCore.setOutput('dependency-count', 0);
+            actionCore.setOutput('zolt-version', '');
+            await (dependencies.writeSummary ?? writeActionSummary)(renderClearSummary({
+                manifestPath,
+                snapshotId: submission.id,
+            }));
+            actionCore.info(`Cleared dependency snapshot ${submission.id.toString()} for ${manifestPath}.`);
+            return;
+        }
         const target = resolveTarget(dependencies.platform ?? process.platform, dependencies.architecture ?? process.arch);
         actionCore.info(`Validated ${context.repository.relativeDirectory} on ${context.event.defaultBranch}; installing pinned Zolt for ${target}.`);
         installed = await (dependencies.install ?? installZolt)(target, { environment });

@@ -7,6 +7,11 @@ export interface SummaryInput {
     readonly zoltVersion: string;
 }
 
+export interface ClearSummaryInput {
+    readonly manifestPath: string;
+    readonly snapshotId: number;
+}
+
 export function renderSummary(input: SummaryInput): string {
     const statistics = input.manifest.statistics;
     const validation = input.validateLock
@@ -27,6 +32,21 @@ export function renderSummary(input: SummaryInput): string {
         `| Zolt | \`${escapeCode(input.zoltVersion)}\` |`,
         '',
         validation,
+        '',
+    ].join('\n');
+}
+
+export function renderClearSummary(input: ClearSummaryInput): string {
+    return [
+        '## Zolt dependency snapshot cleared',
+        '',
+        '| Field | Value |',
+        '| --- | ---: |',
+        `| Snapshot ID | ${input.snapshotId.toString()} |`,
+        `| Manifest | \`${escapeCode(input.manifestPath)}\` |`,
+        '| External dependencies | 0 |',
+        '',
+        'Submitted an empty snapshot with the manifest\'s stable identity. Zolt was not installed or run.',
         '',
     ].join('\n');
 }

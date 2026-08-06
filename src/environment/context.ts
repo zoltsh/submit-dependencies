@@ -12,7 +12,7 @@ export async function resolveExecutionContext(
     environment: NodeJS.ProcessEnv = process.env,
 ): Promise<ExecutionContext> {
     const [repository, event] = await Promise.all([
-        resolveRepositoryDirectory(environment.GITHUB_WORKSPACE, inputs.directory),
+        resolveRepositoryDirectory(environment.GITHUB_WORKSPACE, inputs.state === 'clear' ? '.' : inputs.directory),
         enforceEventPolicy({
             eventName: environment.GITHUB_EVENT_NAME,
             eventPath: environment.GITHUB_EVENT_PATH,

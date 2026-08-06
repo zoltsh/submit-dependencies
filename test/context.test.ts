@@ -18,7 +18,7 @@ describe('execution context', () => {
         const eventPath = join(root, 'event.json');
         await writeFile(eventPath, JSON.stringify({ repository: { default_branch: 'main', full_name: 'zoltsh/demo' } }));
         await expect(resolveExecutionContext({
-            directory: '.', githubToken: 'secret', validateLock: false, workspace: 'auto',
+            directory: '.', githubToken: 'secret', state: 'submit', validateLock: false, workspace: 'auto',
         }, {
             GITHUB_EVENT_NAME: 'push',
             GITHUB_EVENT_PATH: eventPath,
@@ -29,5 +29,26 @@ describe('execution context', () => {
             event: { defaultBranch: 'main', eventName: 'push' },
             repository: { relativeDirectory: '.' },
         });
+    });
+
+    it('uses the repository root when clearing a deleted manifest directory', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'submit-context-clear-test-'));
+        roots.push(root);
+        const eventPath = join(root, 'event.json');
+        await writeFile(eventPath, JSON.stringify({ repository: { default_branch: 'main', full_name: 'zoltsh/demo' } }));
+        await expect(resolveExecutionContext({
+            directory: 'services/deleted',
+            githubToken: 'secret',
+            manifestPath: 'services/deleted/zolt.lock',
+            state: 'clear',
+            validateLock: false,
+            workspace: 'auto',
+        }, {
+            GITHUB_EVENT_NAME: 'push',
+            GITHUB_EVENT_PATH: eventPath,
+            GITHUB_REF: 'refs/heads/main',
+            GITHUB_REPOSITORY: 'zoltsh/demo',
+            GITHUB_WORKSPACE: root,
+        })).resolves.toMatchObject({ repository: { relativeDirectory: '.' } });
     });
 });

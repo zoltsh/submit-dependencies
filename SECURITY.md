@@ -26,8 +26,11 @@ and GitHub API failures as untrusted.
 - Zolt runs by absolute path with argument arrays and no shell.
 - Tree and CycloneDX output is size-bounded and strictly decoded.
 - Both graphs must describe the same dependencies before submission.
-- The GitHub token is masked, kept out of Zolt's environment, and removed from
-  failure messages.
+- Version, tree, and SBOM commands receive only path, locale, and temporary-file
+  variables. Validation receives repository credentials but no GitHub token.
+- All public diagnostics are control-stripped, bounded, and redacted before
+  reaching the runner log.
+- The default branch tip is checked immediately before every snapshot POST.
 - Normal analysis is Maven-offline. `validate-lock: true` is the documented
   exception.
 

@@ -19,6 +19,9 @@ strict decode and graph comparison
 GitHub dependency snapshot
 ```
 
+`state: clear` takes the shorter path from event checks to an empty snapshot
+for one explicit manifest path. It never installs or runs Zolt.
+
 ## Modules
 
 | Module | Responsibility |
@@ -41,8 +44,9 @@ GitHub dependency snapshot
 6. Classifiers and non-default artifact types stay distinct.
 7. Workspace members are never submitted as external dependencies.
 8. Snapshot identity is stable for each repository-relative lockfile path.
-9. The GitHub token never reaches Zolt or machine-output diagnostics.
-10. Unknown schemas, scopes, PURLs, edges, or lock versions fail before the API
+9. The default branch tip must still equal the run SHA immediately before POST.
+10. The GitHub token never reaches Zolt or machine-output diagnostics.
+11. Unknown schemas, scopes, PURLs, edges, or lock versions fail before the API
     call.
 
 ## Compatibility

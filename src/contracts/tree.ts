@@ -34,22 +34,37 @@ export interface TreePackage {
     readonly members: readonly string[];
     readonly nodeKey: string;
     readonly scope: ZoltScope;
+    readonly workspace?: string;
+}
+
+export interface TreeWorkspaceMember {
+    readonly artifact: ArtifactIdentity;
+    readonly artifactKey: string;
+    readonly dependencies: readonly string[];
+    readonly path: string;
+}
+
+export interface TreeProject {
+    readonly artifact: string;
+    readonly group: string;
+    readonly version: string;
 }
 
 export interface TreeDocument {
     readonly lockVersion?: number;
     readonly mode: 'project' | 'workspace';
     readonly packages: readonly TreePackage[];
-    readonly schemaVersion: 1 | 2;
-    readonly workspaceMembers: readonly string[];
+    readonly project?: TreeProject;
+    readonly schemaVersion: 1 | 3;
+    readonly workspaceMembers: readonly TreeWorkspaceMember[];
 }
 
 export function decodeTree(value: unknown): TreeDocument {
     const root = object(value, 'tree');
     const schemaVersion = integer(root.schemaVersion, 'tree.schemaVersion');
     if (schemaVersion === 1) return decodeV1(root);
-    if (schemaVersion === 2) return decodeV2(root);
-    throw contractError(`The action understands tree schema 1 and 2, but Zolt emitted schema ${schemaVersion.toString()}. Upgrade zoltsh/submit-dependencies.`);
+    if (schemaVersion === 3) return decodeV3(root);
+    throw contractError(`The action understands tree schema 1 and 3, but Zolt emitted schema ${schemaVersion.toString()}. Upgrade zoltsh/submit-dependencies.`);
 }
 
 function decodeV1(root: Record<string, unknown>): TreeDocument {
@@ -68,29 +83,68 @@ function decodeV1(root: Record<string, unknown>): TreeDocument {
     validateRoots(root.roots, packages);
     array(root.conflicts, 'tree.conflicts');
     array(root.policyEffects, 'tree.policyEffects');
-    return { mode: 'project', packages, schemaVersion: 1, workspaceMembers: [] };
+    return {
+        mode: 'project',
+        packages,
+        project: { artifact: name, group, version },
+        schemaVersion: 1,
+        workspaceMembers: [],
+    };
 }
 
-function decodeV2(root: Record<string, unknown>): TreeDocument {
-    assertKeys(root, 'tree schema 2',
+function decodeV3(root: Record<string, unknown>): TreeDocument {
+    assertKeys(root, 'tree schema 3',
         ['schemaVersion', 'command', 'mode', 'lockVersion', 'workspace', 'packages', 'roots']);
     requireLiteral(root.command, 'tree', 'tree.command');
     requireLiteral(root.mode, 'workspace', 'tree.mode');
     const lockVersion = integer(root.lockVersion, 'tree.lockVersion');
     if (lockVersion !== 5) {
-        throw contractError(`Tree schema 2 lockVersion ${lockVersion.toString()} is unsupported; expected 5.`);
+        throw contractError(`Tree schema 3 lockVersion ${lockVersion.toString()} is unsupported; expected 5.`);
     }
     const workspace = object(root.workspace, 'tree.workspace');
     assertKeys(workspace, 'tree.workspace', ['name', 'members']);
     string(workspace.name, 'tree.workspace.name');
-    const workspaceMembers = sortedUniqueStrings(workspace.members, 'tree.workspace.members');
-    const packages = decodePackages(root.packages, 2, workspaceMembers);
+    const workspaceMembers = decodeWorkspaceMembers(workspace.members);
+    const packages = decodePackages(root.packages, 3, workspaceMembers);
     validateRoots(root.roots, packages);
-    return { lockVersion, mode: 'workspace', packages, schemaVersion: 2, workspaceMembers };
+    return { lockVersion, mode: 'workspace', packages, schemaVersion: 3, workspaceMembers };
 }
 
-function decodePackages(value: unknown, schema: 1 | 2, workspaceMembers: readonly string[]): TreePackage[] {
-    const knownMembers = new Set(workspaceMembers);
+function decodeWorkspaceMembers(value: unknown): TreeWorkspaceMember[] {
+    const members = array(value, 'tree.workspace.members').map((item, index) => {
+        const label = `tree.workspace.members[${index.toString()}]`;
+        const member = object(item, label);
+        assertKeys(member, label, ['path', 'group', 'name', 'version', 'type', 'dependencies']);
+        const path = string(member.path, `${label}.path`);
+        const id = parsePackageId(
+            `${string(member.group, `${label}.group`)}:${string(member.name, `${label}.name`)}`,
+            label,
+        );
+        const version = string(member.version, `${label}.version`);
+        const variant = parseVariant(string(member.type, `${label}.type`), `${label}.type`);
+        if (variant.classifier !== undefined) throw contractError(`${label}.type cannot include a classifier.`);
+        const artifact: ArtifactIdentity = { ...id, type: variant.type, version };
+        const dependencies = sortedUniqueStrings(member.dependencies, `${label}.dependencies`);
+        return { artifact, artifactKey: artifactKey(artifact), dependencies, path };
+    });
+    const paths = members.map((member) => member.path);
+    const sortedPaths = [...new Set(paths)].sort();
+    if (sortedPaths.length !== paths.length || sortedPaths.some((path, index) => path !== paths[index])) {
+        throw contractError('tree.workspace.members must be sorted by unique path.');
+    }
+    if (new Set(members.map((member) => member.artifactKey)).size !== members.length) {
+        throw contractError('tree.workspace.members contains duplicate package identities.');
+    }
+    return members;
+}
+
+function decodePackages(
+    value: unknown,
+    schema: 1 | 3,
+    workspaceMembers: readonly TreeWorkspaceMember[],
+): TreePackage[] {
+    const membersByPath = new Map(workspaceMembers.map((member) => [member.path, member]));
+    const memberByArtifact = new Map(workspaceMembers.map((member) => [member.artifactKey, member]));
     const nodes: Set<string> = new Set();
     return array(value, 'tree.packages').map((item, index) => {
         const label = `tree.packages[${index.toString()}]`;
@@ -101,7 +155,7 @@ function decodePackages(value: unknown, schema: 1 | 2, workspaceMembers: readonl
             schema === 1
                 ? ['id', 'version', 'coordinate', 'scope', 'direct', 'dependencies', 'policies']
                 : ['id', 'version', 'coordinate', 'scope', 'direct', 'members', 'dependencies'],
-            ['variant'],
+            schema === 1 ? ['variant'] : ['variant', 'workspace'],
         );
         const id = parsePackageId(string(pkg.id, `${label}.id`), `${label}.id`);
         const version = string(pkg.version, `${label}.version`);
@@ -122,12 +176,35 @@ function decodePackages(value: unknown, schema: 1 | 2, workspaceMembers: readonl
         if (nodes.has(nodeKey)) throw contractError(`${label} duplicates a tree-node identity.`);
         nodes.add(nodeKey);
         const dependencies = sortedUniqueStrings(pkg.dependencies, `${label}.dependencies`);
-        const members = schema === 2 ? sortedUniqueStrings(pkg.members, `${label}.members`) : [];
+        const members = schema === 3 ? sortedUniqueStrings(pkg.members, `${label}.members`) : [];
         for (const member of members) {
-            if (!knownMembers.has(member)) throw contractError(`${label}.members contains unknown workspace member ${member}.`);
+            if (!membersByPath.has(member)) throw contractError(`${label}.members contains unknown workspace member ${member}.`);
+        }
+        const workspace = schema === 3 && pkg.workspace !== undefined
+            ? string(pkg.workspace, `${label}.workspace`)
+            : undefined;
+        if (workspace !== undefined) {
+            const owner = membersByPath.get(workspace);
+            if (owner === undefined) throw contractError(`${label}.workspace names unknown workspace member ${workspace}.`);
+            if (owner.artifactKey !== artifactKey(artifact)) {
+                throw contractError(`${label}.workspace package identity disagrees with member ${workspace}.`);
+            }
+        }
+        const matchingMember = memberByArtifact.get(artifactKey(artifact));
+        if (schema === 3 && matchingMember !== undefined && workspace !== matchingMember.path) {
+            throw contractError(`${label} matches workspace member ${matchingMember.path} but does not identify that owner.`);
         }
         if (schema === 1) sortedUniqueStrings(pkg.policies, `${label}.policies`);
-        return { artifact, coordinate, dependencies, direct: boolean(pkg.direct, `${label}.direct`), members, nodeKey, scope };
+        return {
+            artifact,
+            coordinate,
+            dependencies,
+            direct: boolean(pkg.direct, `${label}.direct`),
+            members,
+            nodeKey,
+            scope,
+            ...workspace === undefined ? {} : { workspace },
+        };
     });
 }
 

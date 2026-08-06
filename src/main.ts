@@ -5,9 +5,9 @@ import { PRESERVE_ZOLT_PURLS } from './converter/purl-policy';
 import { resolveExecutionContext } from './environment/context';
 import { SubmitDependenciesError } from './errors';
 import { readGitHubSubmissionContext } from './github/context';
-import { buildSnapshot } from './github/snapshot';
+import { buildClearSnapshot, buildSnapshot } from './github/snapshot';
 import { submitSnapshot } from './github/submit';
-import { renderSummary } from './github/summary';
+import { renderClearSummary, renderSummary } from './github/summary';
 import { readInputs, type InputReader } from './inputs';
 import { installZolt, type InstalledZolt } from './install/install-zolt';
 import { resolveTarget } from './install/platform';
@@ -55,6 +55,32 @@ export async function runAction(dependencies: ActionDependencies = {}): Promise<
             (dependencies.resolveContext ?? resolveExecutionContext)(inputs, environment),
             Promise.resolve((dependencies.resolveSubmissionContext ?? readGitHubSubmissionContext)(environment)),
         ]);
+        if (inputs.state === 'clear') {
+            const manifestPath = inputs.manifestPath;
+            if (manifestPath === undefined) {
+                throw new SubmitDependenciesError('ZOLT-INPUT-009', 'manifest-path is required when state is clear.');
+            }
+            actionCore.info(`Validated ${manifestPath} tombstone on ${context.event.defaultBranch}.`);
+            const snapshot = buildClearSnapshot({
+                context: submissionContext,
+                manifestPath,
+                scanned: (dependencies.now ?? (() => new Date()))(),
+            });
+            const submission = await (dependencies.submit ?? submitSnapshot)(
+                inputs.githubToken,
+                submissionContext,
+                snapshot,
+            );
+            actionCore.setOutput('snapshot-id', submission.id);
+            actionCore.setOutput('dependency-count', 0);
+            actionCore.setOutput('zolt-version', '');
+            await (dependencies.writeSummary ?? writeActionSummary)(renderClearSummary({
+                manifestPath,
+                snapshotId: submission.id,
+            }));
+            actionCore.info(`Cleared dependency snapshot ${submission.id.toString()} for ${manifestPath}.`);
+            return;
+        }
         const target = resolveTarget(dependencies.platform ?? process.platform, dependencies.architecture ?? process.arch);
         actionCore.info(`Validated ${context.repository.relativeDirectory} on ${context.event.defaultBranch}; installing pinned Zolt for ${target}.`);
         installed = await (dependencies.install ?? installZolt)(target, { environment });

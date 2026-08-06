@@ -81,7 +81,8 @@ describe('pure dependency converter', () => {
         const coreContext = `${shared}#zolt-context=modules%2Fcore`;
         const packages: PackageFixture[] = [
             { id: 'com.example:core', version: '0.1.0', scope: 'compile', direct: true,
-                members: ['apps/api'], dependencies: ['org.example:shared:1.0.0:jar:compile'] },
+                members: ['apps/api'], dependencies: ['org.example:shared:1.0.0:jar:compile'],
+                workspace: 'modules/core' },
             { id: 'org.example:extra', version: '2.0.0', scope: 'compile', direct: false,
                 members: ['apps/api'] },
             { id: 'org.example:shared', version: '1.0.0', scope: 'compile', direct: true,
@@ -91,7 +92,13 @@ describe('pure dependency converter', () => {
         ];
         const bom = workspaceBom(
             [component(shared, apiContext), component(shared, coreContext), component(extra)],
-            { [apiContext]: [extra], [coreContext]: [], [extra]: [] },
+            {
+                [purl('com.example', 'api', '0.1.0')]: [purl('com.example', 'core', '0.1.0'), apiContext],
+                [purl('com.example', 'core', '0.1.0')]: [coreContext],
+                [apiContext]: [extra],
+                [coreContext]: [],
+                [extra]: [],
+            },
         );
 
         const result = convert({ bom, manifestPath: 'zolt.lock', purlPolicy: PRESERVE_ZOLT_PURLS,
@@ -101,7 +108,7 @@ describe('pure dependency converter', () => {
             [extra, { dependencies: [], packageUrl: extra, relationship: 'indirect', scope: 'runtime' }],
             [shared, { dependencies: [extra], packageUrl: shared, relationship: 'direct', scope: 'runtime' }],
         ]);
-        expect(result).toMatchObject({ lockVersion: 5, mode: 'workspace', treeSchema: 2 });
+        expect(result).toMatchObject({ lockVersion: 5, mode: 'workspace', treeSchema: 3 });
         expect([...result.dependencies.keys()].some((value) => value.includes('com.example'))).toBe(false);
     });
 
@@ -141,7 +148,7 @@ describe('pure dependency converter', () => {
             bom, manifestPath: 'zolt.lock', purlPolicy: PRESERVE_ZOLT_PURLS, tree,
         });
 
-        expect(() => run({ ...validTree, schemaVersion: 3 })).toThrow('ZOLT-CONTRACT-001');
+        expect(() => run({ ...validTree, schemaVersion: 2 })).toThrow('ZOLT-CONTRACT-001');
         const unknownScope = structuredClone(validTree);
         const firstPackage = (unknownScope.packages as Array<Record<string, unknown>>).at(0);
         if (firstPackage === undefined) throw new Error('fixture has no package');
@@ -156,6 +163,52 @@ describe('pure dependency converter', () => {
             component(value), component(purl('org.example', 'extra', '2.0.0')),
         ], { [value]: [], [purl('org.example', 'extra', '2.0.0')]: [] });
         expect(() => run(validTree, mismatch)).toThrow('ZOLT-GRAPH-012');
+    });
+
+    it('compares the project identity, root edges, and directness exactly', () => {
+        const a = purl('org.example', 'a', '1.0.0');
+        const b = purl('org.example', 'b', '2.0.0');
+        const tree = projectTree([
+            { id: 'org.example:a', version: '1.0.0', scope: 'compile', direct: true,
+                dependencies: ['org.example:b:2.0.0:jar:compile'] },
+            { id: 'org.example:b', version: '2.0.0', scope: 'compile', direct: false },
+        ]);
+
+        expect(() => convert({
+            bom: projectBom([component(a), component(b)], { [a]: [b], [b]: [] }, [b]),
+            manifestPath: 'zolt.lock',
+            purlPolicy: PRESERVE_ZOLT_PURLS,
+            tree,
+        })).toThrow('ZOLT-GRAPH-012');
+
+        const indirectTree = projectTree([
+            { id: 'org.example:a', version: '1.0.0', scope: 'compile', direct: false },
+        ]);
+        expect(() => convert({
+            bom: projectBom([component(a)], { [a]: [] }, [a]),
+            manifestPath: 'zolt.lock',
+            purlPolicy: PRESERVE_ZOLT_PURLS,
+            tree: indirectTree,
+        })).toThrow('ZOLT-GRAPH-012');
+
+        const wrongRoot = projectBom([component(a)], { [a]: [] });
+        const imposter = purl('com.example', 'imposter', '0.1.0');
+        wrongRoot.metadata = {
+            component: {
+                type: 'application', 'bom-ref': imposter, group: 'com.example', name: 'imposter',
+                version: '0.1.0', purl: imposter,
+            },
+            tools: [{ name: 'zolt', version: 'test' }],
+        };
+        const rootDependency = (wrongRoot.dependencies as Array<Record<string, unknown>>)[0];
+        if (rootDependency === undefined) throw new Error('fixture has no root dependency');
+        rootDependency.ref = imposter;
+        expect(() => convert({
+            bom: wrongRoot,
+            manifestPath: 'zolt.lock',
+            purlPolicy: PRESERVE_ZOLT_PURLS,
+            tree: projectTree([{ id: 'org.example:a', version: '1.0.0', scope: 'compile', direct: true }]),
+        })).toThrow('root Maven identities disagree');
     });
 
     it.each(['', '/zolt.lock', 'nested\\zolt.lock', 'nested/../zolt.lock'])('rejects unsafe manifest path %j', (manifestPath) => {
@@ -245,6 +298,92 @@ describe('pure dependency converter', () => {
             bom: missingMemberPurl, manifestPath: 'zolt.lock', purlPolicy: PRESERVE_ZOLT_PURLS,
             tree: workspaceTree(packages),
         })).toThrow('has no canonical Maven PURL');
+    });
+
+    it('keeps an injected workspace graph root indirect', () => {
+        const tool = purl('org.example', 'tool', '1.0.0');
+        const packages: PackageFixture[] = [
+            { id: 'org.example:tool', version: '1.0.0', scope: 'tool-coverage', direct: false,
+                members: ['apps/api'] },
+        ];
+        const tree = workspaceTree(packages, {
+            'apps/api': ['org.example:tool:1.0.0:jar:tool-coverage'],
+            'modules/core': [],
+        });
+        const bom = workspaceBom([component(tool)], {
+            [purl('com.example', 'api', '0.1.0')]: [tool],
+            [tool]: [],
+        });
+
+        const result = convert({ bom, manifestPath: 'zolt.lock', purlPolicy: PRESERVE_ZOLT_PURLS, tree });
+
+        expect(result.dependencies.get(tool)).toMatchObject({ relationship: 'indirect', scope: 'development' });
+    });
+
+    it('rejects same-count workspace identity swaps, member-edge mismatches, and unreachable packages', () => {
+        const external = purl('org.example', 'a', '1.0.0');
+        const packages: PackageFixture[] = [
+            { id: 'org.example:a', version: '1.0.0', scope: 'compile', direct: true, members: ['apps/api'] },
+        ];
+        const validBom = workspaceBom([component(external)], {
+            [purl('com.example', 'api', '0.1.0')]: [external],
+            [external]: [],
+        });
+
+        const swapped = structuredClone(validBom);
+        const root = (swapped.dependencies as Array<Record<string, unknown>>)[0];
+        const components = swapped.components as Array<Record<string, unknown>>;
+        if (root === undefined || components[0] === undefined) throw new Error('fixture is incomplete');
+        const imposter = purl('com.example', 'imposter', '0.1.0');
+        components[0] = component(imposter);
+        root.dependsOn = [imposter, purl('com.example', 'core', '0.1.0')].sort();
+        (swapped.dependencies as Array<Record<string, unknown>>)[1] = { ref: imposter, dependsOn: [external] };
+        expect(() => convert({
+            bom: swapped,
+            manifestPath: 'zolt.lock',
+            purlPolicy: PRESERVE_ZOLT_PURLS,
+            tree: workspaceTree(packages),
+        })).toThrow('does not identify workspace member apps/api');
+
+        const missingMemberEdge = workspaceBom([component(external)], { [external]: [] });
+        expect(() => convert({
+            bom: missingMemberEdge,
+            manifestPath: 'zolt.lock',
+            purlPolicy: PRESERVE_ZOLT_PURLS,
+            tree: workspaceTree(packages),
+        })).toThrow('ZOLT-GRAPH-012');
+
+        const wrongMember = workspaceBom([component(external)], {
+            [purl('com.example', 'core', '0.1.0')]: [external],
+            [external]: [],
+        });
+        expect(() => convert({
+            bom: wrongMember,
+            manifestPath: 'zolt.lock',
+            purlPolicy: PRESERVE_ZOLT_PURLS,
+            tree: workspaceTree(packages),
+        })).toThrow('ZOLT-GRAPH-012');
+
+        const indirectTree = workspaceTree([
+            { id: 'org.example:a', version: '1.0.0', scope: 'compile', direct: false, members: ['apps/api'] },
+        ]);
+        expect(() => convert({
+            bom: validBom,
+            manifestPath: 'zolt.lock',
+            purlPolicy: PRESERVE_ZOLT_PURLS,
+            tree: indirectTree,
+        })).toThrow('ZOLT-GRAPH-012');
+
+        const orphanTree = workspaceTree([
+            { id: 'org.example:a', version: '1.0.0', scope: 'compile', direct: false },
+        ]);
+        const orphanBom = workspaceBom([component(external)], { [external]: [] });
+        expect(() => convert({
+            bom: orphanBom,
+            manifestPath: 'zolt.lock',
+            purlPolicy: PRESERVE_ZOLT_PURLS,
+            tree: orphanTree,
+        })).toThrow('ZOLT-GRAPH-016');
     });
 
     it('rejects an external CycloneDX component without a PURL', () => {

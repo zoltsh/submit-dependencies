@@ -5,7 +5,7 @@ import type { ConvertedManifest } from '../converter/convert';
 import type { GitHubSubmissionContext } from './context';
 
 export interface SnapshotDependency {
-    readonly dependencies: readonly string[];
+    readonly dependencies: string[];
     readonly package_url: string;
     readonly relationship: 'direct' | 'indirect';
     readonly scope: 'runtime' | 'development';
@@ -41,6 +41,12 @@ export interface BuildSnapshotInput {
     readonly zoltVersion: string;
 }
 
+export interface BuildClearSnapshotInput {
+    readonly context: GitHubSubmissionContext;
+    readonly manifestPath: string;
+    readonly scanned: Date;
+}
+
 const DETECTOR_NAME = 'zoltsh/submit-dependencies';
 const DETECTOR_URL = 'https://github.com/zoltsh/submit-dependencies';
 
@@ -48,7 +54,7 @@ export function buildSnapshot(input: BuildSnapshotInput): DependencySnapshot {
     const resolved: Record<string, SnapshotDependency> = {};
     for (const [purl, dependency] of input.manifest.dependencies) {
         resolved[purl] = {
-            dependencies: dependency.dependencies,
+            dependencies: [...dependency.dependencies],
             package_url: dependency.packageUrl,
             relationship: dependency.relationship,
             scope: dependency.scope,
@@ -58,16 +64,13 @@ export function buildSnapshot(input: BuildSnapshotInput): DependencySnapshot {
         lock_version: input.manifest.lockVersion ?? 'unknown',
         mode: input.manifest.mode,
         sbom_spec: '1.5',
+        state: 'submit',
         tree_schema: input.manifest.treeSchema,
         zolt_version: input.zoltVersion,
     };
     return {
         detector: { metadata, name: DETECTOR_NAME, url: DETECTOR_URL, version: ACTION_VERSION },
-        job: {
-            correlator: manifestCorrelator(input.manifest.sourceLocation),
-            html_url: `${input.context.serverUrl}/${input.context.owner}/${input.context.repository}/actions/runs/${input.context.runId}`,
-            id: `${input.context.runId}.${input.context.attempt}`,
-        },
+        job: snapshotJob(input.context, input.manifest.sourceLocation),
         manifests: {
             [input.manifest.sourceLocation]: {
                 file: { source_location: input.manifest.sourceLocation },
@@ -79,6 +82,37 @@ export function buildSnapshot(input: BuildSnapshotInput): DependencySnapshot {
         scanned: input.scanned.toISOString(),
         sha: input.context.sha,
         version: 0,
+    };
+}
+
+export function buildClearSnapshot(input: BuildClearSnapshotInput): DependencySnapshot {
+    return {
+        detector: {
+            metadata: { state: 'clear' },
+            name: DETECTOR_NAME,
+            url: DETECTOR_URL,
+            version: ACTION_VERSION,
+        },
+        job: snapshotJob(input.context, input.manifestPath),
+        manifests: {
+            [input.manifestPath]: {
+                file: { source_location: input.manifestPath },
+                name: input.manifestPath,
+                resolved: {},
+            },
+        },
+        ref: input.context.ref,
+        scanned: input.scanned.toISOString(),
+        sha: input.context.sha,
+        version: 0,
+    };
+}
+
+function snapshotJob(context: GitHubSubmissionContext, manifestPath: string): DependencySnapshot['job'] {
+    return {
+        correlator: manifestCorrelator(manifestPath),
+        html_url: `${context.serverUrl}/${context.owner}/${context.repository}/actions/runs/${context.runId}`,
+        id: `${context.runId}.${context.attempt}`,
     };
 }
 

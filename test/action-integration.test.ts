@@ -41,7 +41,7 @@ describe('action analysis integration', () => {
 
         await expect(verifyZoltVersion(fake, 'fixture-zolt-1', { PATH: process.env.PATH })).resolves.toBeUndefined();
         const machine = await captureZoltOutputs(fake, {
-            directory: '.', githubToken: 'must-not-reach-zolt', validateLock: true, workspace: 'false',
+            directory: '.', githubToken: 'must-not-reach-zolt', state: 'submit', validateLock: true, workspace: 'false',
         }, {
             directory: projectDirectory, relativeDirectory: 'project', workspace,
         }, {
