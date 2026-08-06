@@ -111,6 +111,30 @@ describe('tree contract edge cases', () => {
         ]);
         expect(() => decodeTree(value)).toThrow('duplicates a tree-node identity');
     });
+
+    it('accepts sorted duplicate schema-1 roots for direct scope copies', () => {
+        const value = projectTree([
+            { id: 'org.example:a', version: '1', scope: 'compile', direct: true },
+            { id: 'org.example:a', version: '1', scope: 'test', direct: true },
+        ]);
+        value.roots = ['org.example:a:1', 'org.example:a:1'];
+        expect(decodeTree(value)).toMatchObject({ mode: 'project', schemaVersion: 1 });
+    });
+
+    it('keeps schema-1 root ordering and schema-3 root uniqueness strict', () => {
+        const project = projectTree([
+            { id: 'org.example:a', version: '1', scope: 'compile', direct: true },
+            { id: 'org.example:b', version: '1', scope: 'compile', direct: true },
+        ]);
+        project.roots = ['org.example:b:1', 'org.example:a:1'];
+        expect(() => decodeTree(project)).toThrow('tree.roots must be sorted');
+
+        const workspace = workspaceTree([
+            { id: 'org.example:a', version: '1', scope: 'compile', direct: true, members: ['apps/api'] },
+        ]);
+        workspace.roots = ['org.example:a:1', 'org.example:a:1'];
+        expect(() => decodeTree(workspace)).toThrow('tree.roots must be sorted and contain no duplicates');
+    });
 });
 
 describe('CycloneDX contract edge cases', () => {

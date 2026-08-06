@@ -80,7 +80,7 @@ function decodeV1(root: Record<string, unknown>): TreeDocument {
         throw contractError('tree.project.coordinate disagrees with its group, name, and version.');
     }
     const packages = decodePackages(root.packages, 1, []);
-    validateRoots(root.roots, packages);
+    validateRoots(root.roots, packages, 1);
     array(root.conflicts, 'tree.conflicts');
     array(root.policyEffects, 'tree.policyEffects');
     return {
@@ -106,7 +106,7 @@ function decodeV3(root: Record<string, unknown>): TreeDocument {
     string(workspace.name, 'tree.workspace.name');
     const workspaceMembers = decodeWorkspaceMembers(workspace.members);
     const packages = decodePackages(root.packages, 3, workspaceMembers);
-    validateRoots(root.roots, packages);
+    validateRoots(root.roots, packages, 3);
     return { lockVersion, mode: 'workspace', packages, schemaVersion: 3, workspaceMembers };
 }
 
@@ -208,12 +208,22 @@ function decodePackages(
     });
 }
 
-function validateRoots(value: unknown, packages: readonly TreePackage[]): void {
-    const roots = sortedUniqueStrings(value, 'tree.roots');
+function validateRoots(value: unknown, packages: readonly TreePackage[], schema: 1 | 3): void {
+    const roots = schema === 1
+        ? sortedStrings(value, 'tree.roots')
+        : sortedUniqueStrings(value, 'tree.roots');
+    const distinctRoots = [...new Set(roots)];
     const expected = [...new Set(packages.filter((pkg) => pkg.direct).map((pkg) => pkg.coordinate))].sort();
-    if (roots.length !== expected.length || roots.some((root, index) => root !== expected[index])) {
+    if (distinctRoots.length !== expected.length || distinctRoots.some((root, index) => root !== expected[index])) {
         throw contractError('tree.roots does not equal the sorted distinct coordinates of direct packages.');
     }
+}
+
+function sortedStrings(value: unknown, label: string): string[] {
+    const values = array(value, label).map((item, index) => string(item, `${label}[${index.toString()}]`));
+    const sorted = [...values].sort();
+    if (values.some((item, index) => item !== sorted[index])) throw contractError(`${label} must be sorted.`);
+    return values;
 }
 
 function requireLiteral(value: unknown, expected: string, label: string): void {

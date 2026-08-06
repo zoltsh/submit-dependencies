@@ -57,6 +57,22 @@ describe('pure dependency converter', () => {
         expect(result.sourceLocation).toBe('services/api/zolt.lock');
     });
 
+    it('accepts schema-1 duplicate roots for direct copies across scopes', () => {
+        const value = purl('org.example', 'shared', '1.0.0');
+        const tree = projectTree([
+            { id: 'org.example:shared', version: '1.0.0', scope: 'compile', direct: true },
+            { id: 'org.example:shared', version: '1.0.0', scope: 'test', direct: true },
+        ]);
+        tree.roots = ['org.example:shared:1.0.0', 'org.example:shared:1.0.0'];
+        const result = convert({
+            bom: projectBom([component(value)], { [value]: [] }),
+            manifestPath: 'zolt.lock',
+            purlPolicy: PRESERVE_ZOLT_PURLS,
+            tree,
+        });
+        expect(result.dependencies.get(value)).toMatchObject({ relationship: 'direct', scope: 'runtime' });
+    });
+
     it('preserves classifiers and non-default artifact types', () => {
         const classified = purl('org.example', 'agent', '0.9.0', 'jar', 'runtime');
         const zip = purl('org.example', 'bundle', '3.0.0', 'zip');
