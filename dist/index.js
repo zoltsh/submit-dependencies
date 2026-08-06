@@ -39680,15 +39680,15 @@ const external_node_os_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import
 ;// CONCATENATED MODULE: ./src/generated/zolt-release.ts
 // Workspace-capable release candidate. Keep the version and every platform
 // digest aligned with the immutable Zolt channel manifest.
-const ZOLT_VERSION = '0.1.0-zap.20260805.4d8ad3208ada';
-const ZOLT_SOURCE_COMMIT = '4d8ad3208ada1085861241cb2e5d42ade1a00cdf';
+const ZOLT_VERSION = '0.1.0-zap.20260806.5ba5361d856f';
+const ZOLT_SOURCE_COMMIT = '5ba5361d856fd43d65e4ca2d933271a6eff01c3f';
 const tag = `zolt-zap-${ZOLT_VERSION}`;
 const base = `https://github.com/zoltsh/releases/releases/download/${tag}`;
 const ZOLT_RELEASE = {
-    'linux-arm64': artifact('linux-arm64', '20cc3f1a6ce1cf1a6418248a772d9d239564394ac0962885a193f88b49286c6f'),
-    'linux-x64': artifact('linux-x64', '35b6157054a53ca2f50ff6bbb3d69289ba8e4dff3ba47e5920beb4e992dab1fc'),
-    'macos-arm64': artifact('macos-arm64', '59c5d0df71783f25f59754cdbfe90702e0d0e1b3927b366b599fdaba7784b117'),
-    'macos-x64': artifact('macos-x64', '2a39ffe3ffc0ea2e547603773278749e1282b641046346fef951984bced90716'),
+    'linux-arm64': artifact('linux-arm64', 'e4855eae2713d478a7813d76f65dc270892c0895e4cc38107666918b1d698e91'),
+    'linux-x64': artifact('linux-x64', '81ef2c15a8fade32732baf98b3a94f748404d74593f732f76a661a1e3b8358be'),
+    'macos-arm64': artifact('macos-arm64', 'a91be6ca4335fe8e93752320d04e40cc9b8da7ee09b455af87ef48781b5406ff'),
+    'macos-x64': artifact('macos-x64', '125c0c0cae5418acdab2c8431b08bca678ca697f610750d638bf58d489a12cca'),
 };
 function artifact(target, sha256) {
     const archive = `zolt-${ZOLT_VERSION}-${target}.tar.gz`;
