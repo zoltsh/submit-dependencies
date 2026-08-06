@@ -18,9 +18,17 @@ commit SHA and update that pin after a fix is released.
 The action treats repository paths, event data, Zolt archives, machine output,
 and GitHub API failures as untrusted.
 
-- Paths must stay inside the checked-out repository. Symlink escapes fail.
-- The checkout must be at `GITHUB_SHA`; submitted locks must be tracked and
-  unmodified at that commit.
+- Paths must stay inside the checked-out repository. Symlink aliases and escapes
+  fail.
+- Before any download or Zolt command, tracked blobs from the exact `GITHUB_SHA`
+  are copied from Git objects into a private analysis directory. Checkout
+  configuration does not reach Zolt.
+- The private copy is checked for changed, missing, or added files before the
+  snapshot is built.
+- Submitted locks must be regular tracked blobs. Their mode, bytes, and standard
+  index state are checked before installation and again before submission.
+- A cleared lock path must be absent from `GITHUB_SHA`, the index, and the
+  checkout.
 - Zolt release URLs and targets are fixed. Archives must match their SHA-256 and
   expected layout.
 - Archives cannot contain traversal paths, links, special files, or unexpected

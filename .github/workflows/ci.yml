@@ -107,12 +107,13 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Verify published binary and workspace contract
+      - name: Verify published binary contracts
         env:
           EXPECTED_ZOLT_TARGET: ${{ matrix.target }}
+          RUN_LIVE_ZOLT_STANDALONE: ${{ matrix.target == 'linux-x64' }}
           RUN_LIVE_ZOLT_WORKSPACE: "true"
           ZOLT_LIVE_WORKSPACE: ${{ github.workspace }}/zolt-workspace
-        run: npx vitest run test/live-workspace.test.ts
+        run: npx vitest run test/live-workspace.test.ts test/live-standalone.test.ts
 
   windows-negative:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')

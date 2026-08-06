@@ -27,4 +27,10 @@ describe('action summary', () => {
             'Submitted an empty snapshot',
         );
     });
+
+    it('escapes Markdown table delimiters in external values', () => {
+        expect(renderClearSummary({ manifestPath: 'old|name/zolt.lock', snapshotId: 100 })).toContain(
+            '`old\\|name/zolt.lock`',
+        );
+    });
 });

@@ -33,7 +33,7 @@ export async function enforceEventPolicy(environment: EventEnvironment): Promise
     if (fullName !== environment.repository) {
         throw new SubmitDependenciesError(
             'ZOLT-EVENT-003',
-            `Event repository ${fullName} does not match GITHUB_REPOSITORY ${environment.repository}. Fork-originated submissions are not supported.`,
+            `Event repository ${fullName} does not match GITHUB_REPOSITORY ${environment.repository}. Cross-repository submissions are not supported.`,
         );
     }
     const expectedRef = `refs/heads/${defaultBranch}`;

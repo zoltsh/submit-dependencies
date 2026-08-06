@@ -34642,6 +34642,10 @@ async function resolveRepositoryDirectory(workspaceInput, directoryInput) {
     if (rel === '..' || rel.startsWith('../') || (0,external_node_path_namespaceObject.isAbsolute)(rel)) {
         throw new SubmitDependenciesError('ZOLT-INPUT-004', `directory resolves outside GITHUB_WORKSPACE. Resolved path: ${directory}. Choose a project within the checked-out repository.`);
     }
+    const logical = (0,external_node_path_namespaceObject.relative)(workspace, (0,external_node_path_namespaceObject.resolve)(candidate));
+    if (logical !== rel) {
+        throw new SubmitDependenciesError('ZOLT-INPUT-004', 'directory must not resolve through a symbolic-link alias. Choose the committed project directory directly.');
+    }
     return { directory, relativeDirectory: rel === '' ? '.' : rel, workspace };
 }
 async function realPath(label, path) {
@@ -34665,6 +34669,9 @@ const MAX_ARCHIVE_ENTRIES = 10_000;
 const MAX_ARCHIVE_ENTRY_BYTES = 256 * 1024 * 1024;
 const MAX_EVENT_BYTES = 1024 * 1024;
 const MAX_EXTRACTED_BYTES = 512 * 1024 * 1024;
+const MAX_REPOSITORY_BLOB_BYTES = 256 * 1024 * 1024;
+const MAX_REPOSITORY_VIEW_BYTES = 512 * 1024 * 1024;
+const MAX_REPOSITORY_VIEW_ENTRIES = 50_000;
 const RELEASE_ASSET_ORIGIN = 'https://github.com/zoltsh/releases/releases/download';
 
 ;// CONCATENATED MODULE: ./src/environment/events.ts
@@ -34684,7 +34691,7 @@ async function enforceEventPolicy(environment) {
     const defaultBranch = events_string(repository.default_branch, 'repository.default_branch');
     const fullName = events_string(repository.full_name, 'repository.full_name');
     if (fullName !== environment.repository) {
-        throw new SubmitDependenciesError('ZOLT-EVENT-003', `Event repository ${fullName} does not match GITHUB_REPOSITORY ${environment.repository}. Fork-originated submissions are not supported.`);
+        throw new SubmitDependenciesError('ZOLT-EVENT-003', `Event repository ${fullName} does not match GITHUB_REPOSITORY ${environment.repository}. Cross-repository submissions are not supported.`);
     }
     const expectedRef = `refs/heads/${defaultBranch}`;
     if (environment.ref !== expectedRef) {
@@ -34738,44 +34745,464 @@ async function resolveExecutionContext(inputs, environment = process.env) {
     return { event, repository };
 }
 
+// EXTERNAL MODULE: external "node:crypto"
+var external_node_crypto_ = __nccwpck_require__(7598);
 ;// CONCATENATED MODULE: external "node:child_process"
 const external_node_child_process_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:child_process");
+;// CONCATENATED MODULE: external "node:fs"
+const external_node_fs_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:fs");
+;// CONCATENATED MODULE: external "node:os"
+const external_node_os_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:os");
+;// CONCATENATED MODULE: external "node:stream/promises"
+const external_node_stream_promises_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:stream/promises");
 // EXTERNAL MODULE: external "node:util"
 var external_node_util_ = __nccwpck_require__(7975);
 ;// CONCATENATED MODULE: ./src/environment/repository-state.ts
 
 
 
+
+
+
+
+
+
+
+const MAX_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;
+const MAX_SYMLINK_BYTES = 4096;
 const execute = (0,external_node_util_.promisify)(external_node_child_process_namespaceObject.execFile);
-async function verifyRepositoryState(input, options = {}) {
+async function createRepositoryView(input, options = {}) {
+    if (input.workspace === undefined || input.workspace.trim() === '') {
+        throw repositoryError('GITHUB_WORKSPACE is not set. Run this action after actions/checkout.');
+    }
+    if (!validObjectId(input.expectedSha)) {
+        throw repositoryError('GITHUB_SHA must be a full 40- or 64-character commit SHA.');
+    }
+    const sourceWorkspace = await repositoryRoot(input.workspace);
+    const directoryInput = repositoryDirectoryInput(input.workspace, sourceWorkspace, input.directory);
     const runner = options.runner ?? runGit;
-    const gitOptions = {
-        cwd: input.workspace,
-        environment: gitEnvironment(options.environment ?? process.env),
-    };
-    const manifestPathspec = `:(literal)${input.manifestPath}`;
+    const environment = gitEnvironment(options.environment ?? process.env);
+    const gitOptions = { cwd: sourceWorkspace, environment };
     const head = (await git(runner, ['rev-parse', '--verify', 'HEAD^{commit}'], gitOptions, 'Could not read the checked-out commit. Run this action after actions/checkout.')).trim();
-    if (!/^[a-fA-F0-9]{40}$/u.test(head) || head.toLowerCase() !== input.expectedSha.toLowerCase()) {
+    if (!validObjectId(head) || head.toLowerCase() !== input.expectedSha.toLowerCase()) {
         throw repositoryError('The checked-out HEAD does not equal GITHUB_SHA. Check out the triggering commit before submission.');
     }
-    if (input.state === 'submit') {
-        await git(runner, ['ls-files', '--error-unmatch', '--', manifestPathspec], gitOptions, 'The selected zolt.lock is not tracked at GITHUB_SHA. Commit the lockfile before submission.');
+    const objectFormat = (await git(runner, ['rev-parse', '--show-object-format'], gitOptions, 'Could not determine the repository object format.')).trim();
+    if (objectFormat !== 'sha1' && objectFormat !== 'sha256') {
+        throw repositoryError('The repository uses an unsupported Git object format.');
     }
-    const status = await git(runner, ['status', '--porcelain=v1', '--untracked-files=all', '--', manifestPathspec], gitOptions, 'Could not verify the selected manifest worktree state.');
-    if (status !== '') {
-        throw repositoryError('The selected manifest differs from GITHUB_SHA. Commit or restore the lockfile before submission.');
+    const tree = parseTree(await git(runner, ['ls-tree', '-rz', '--full-tree', input.expectedSha], gitOptions, 'Could not read the exact GITHUB_SHA tree.'), objectFormat);
+    const temporaryBase = options.temporaryRoot ?? options.environment?.RUNNER_TEMP ?? (0,external_node_os_namespaceObject.tmpdir)();
+    await (0,promises_namespaceObject.mkdir)(temporaryBase, { mode: 0o700, recursive: true });
+    const root = await (0,promises_namespaceObject.mkdtemp)((0,external_node_path_namespaceObject.join)(temporaryBase, 'zolt-repository-view-'));
+    const checks = (0,external_node_path_namespaceObject.join)(root, 'objects.check');
+    const objects = (0,external_node_path_namespaceObject.join)(root, 'objects.batch');
+    const requests = (0,external_node_path_namespaceObject.join)(root, 'objects.request');
+    const workspace = (0,external_node_path_namespaceObject.join)(root, 'workspace');
+    await (0,promises_namespaceObject.mkdir)(workspace, { mode: 0o700 });
+    try {
+        await materializeTree({ checks, objects, requests, sourceWorkspace, workspace }, tree, environment);
+        await Promise.all([
+            (0,promises_namespaceObject.rm)(checks, { force: true }),
+            (0,promises_namespaceObject.rm)(objects, { force: true }),
+            (0,promises_namespaceObject.rm)(requests, { force: true }),
+        ]);
+        await verifyTree(workspace, tree, objectFormat);
     }
+    catch (error) {
+        await removeView(root);
+        throw error;
+    }
+    let cleaned = false;
+    return {
+        cleanup: async () => {
+            if (cleaned)
+                return;
+            cleaned = true;
+            await removeView(root);
+        },
+        directoryInput,
+        verifyManifest: async (manifest) => {
+            await verifyTree(workspace, tree, objectFormat);
+            await verifyManifestState(manifest, {
+                environment,
+                runner,
+                sourceWorkspace,
+                tree,
+            });
+        },
+        workspace,
+    };
+}
+async function verifyManifestState(input, context) {
+    const entry = context.tree.get(input.manifestPath);
+    const options = { cwd: context.sourceWorkspace, environment: context.environment };
+    const pathspec = `:(literal)${input.manifestPath}`;
+    const indexState = await git(context.runner, ['ls-files', '-v', '-z', '--', pathspec], options, 'Could not verify the selected manifest index state.');
+    const sourcePath = (0,external_node_path_namespaceObject.join)(context.sourceWorkspace, ...input.manifestPath.split('/'));
+    if (input.state === 'clear') {
+        if (entry !== undefined) {
+            throw repositoryError('The manifest-path still exists at GITHUB_SHA. Delete or rename the lockfile before clearing its snapshot.');
+        }
+        if (indexState !== '') {
+            throw repositoryError('The manifest-path exists in the checkout index. Commit its deletion before clearing its snapshot.');
+        }
+        try {
+            await (0,promises_namespaceObject.lstat)(sourcePath);
+            throw repositoryError('The manifest-path exists in the checkout. Remove it before clearing its snapshot.');
+        }
+        catch (error) {
+            if (error instanceof SubmitDependenciesError)
+                throw error;
+            if (error.code !== 'ENOENT') {
+                throw repositoryError('Could not verify that the cleared manifest is absent from the checkout.', error);
+            }
+        }
+        return;
+    }
+    if (entry?.type !== 'blob' || entry.mode !== '100644' && entry.mode !== '100755') {
+        throw repositoryError('The selected zolt.lock is not a regular tracked blob at GITHUB_SHA.');
+    }
+    if (indexState !== `H ${input.manifestPath}\0`) {
+        throw repositoryError('The selected zolt.lock uses assume-unchanged, skip-worktree, or another nonstandard index state.');
+    }
+    await verifyRegularBlob(sourcePath, entry, 'The selected zolt.lock differs from GITHUB_SHA.');
+}
+async function repositoryRoot(workspace) {
+    try {
+        const root = await (0,promises_namespaceObject.realpath)(workspace);
+        const info = await (0,promises_namespaceObject.lstat)(root);
+        if (!info.isDirectory() || info.isSymbolicLink())
+            throw new Error('not a regular directory');
+        return root;
+    }
+    catch (error) {
+        throw repositoryError('GITHUB_WORKSPACE does not resolve to a readable repository directory.', error);
+    }
+}
+function repositoryDirectoryInput(logicalWorkspace, sourceWorkspace, directory) {
+    const logicalRoot = (0,external_node_path_namespaceObject.resolve)(logicalWorkspace);
+    const candidate = (0,external_node_path_namespaceObject.isAbsolute)(directory) ? (0,external_node_path_namespaceObject.resolve)(directory) : (0,external_node_path_namespaceObject.resolve)(logicalRoot, directory);
+    let value = (0,external_node_path_namespaceObject.relative)(logicalRoot, candidate);
+    if (outside(value))
+        value = (0,external_node_path_namespaceObject.relative)(sourceWorkspace, candidate);
+    if (outside(value)) {
+        throw repositoryError('directory resolves outside GITHUB_WORKSPACE. Choose a project within the repository.');
+    }
+    return value === '' ? '.' : value.split(external_node_path_namespaceObject.sep).join('/');
+}
+function outside(value) {
+    return (0,external_node_path_namespaceObject.isAbsolute)(value) || value === '..' || value.startsWith(`..${external_node_path_namespaceObject.sep}`);
+}
+function parseTree(value, objectFormat) {
+    const result = new Map();
+    const caseFolded = new Set();
+    const objectLength = objectFormat === 'sha1' ? 40 : 64;
+    for (const record of value.split('\0')) {
+        if (record === '')
+            continue;
+        const match = /^(100644|100755|120000|160000) (blob|commit) ([0-9a-f]+)\t([\s\S]+)$/u.exec(record);
+        if (match === null)
+            throw repositoryError('Git returned an unsupported tree entry.');
+        const [, modeValue, typeValue, object = '', path = ''] = match;
+        if (object.length !== objectLength || !safeTreePath(path)) {
+            throw repositoryError('Git returned an invalid tree entry.');
+        }
+        const mode = modeValue;
+        const type = typeValue;
+        if (mode === '160000' ? type !== 'commit' : type !== 'blob') {
+            throw repositoryError('Git returned an inconsistent tree entry.');
+        }
+        const folded = path.toLowerCase();
+        if (caseFolded.has(folded))
+            throw repositoryError('The repository contains a case-colliding path.');
+        caseFolded.add(folded);
+        result.set(path, { mode, object, path, type });
+        if (result.size > MAX_REPOSITORY_VIEW_ENTRIES) {
+            throw repositoryError('The exact GITHUB_SHA tree exceeds the repository-view entry limit.');
+        }
+    }
+    return result;
+}
+async function materializeTree(paths, tree, environment) {
+    const blobs = [...tree.values()].filter((entry) => entry.type === 'blob');
+    await (0,promises_namespaceObject.writeFile)(paths.requests, `${blobs.map((entry) => entry.object).join('\n')}${blobs.length === 0 ? '' : '\n'}`, { mode: 0o600 });
+    const gitOptions = { cwd: paths.sourceWorkspace, environment };
+    await runGitBatch(['cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'], paths.requests, paths.checks, gitOptions, 'Could not inspect exact GITHUB_SHA blobs.');
+    const sizes = validateBatchChecks(await (0,promises_namespaceObject.readFile)(paths.checks, 'utf8'), blobs);
+    await runGitBatch(['cat-file', '--batch'], paths.requests, paths.objects, gitOptions, 'Could not read exact GITHUB_SHA blobs.');
+    const objectInfo = await (0,promises_namespaceObject.stat)(paths.objects);
+    if (!objectInfo.isFile() || objectInfo.size > MAX_REPOSITORY_VIEW_BYTES + blobs.length * 200) {
+        throw repositoryError('The exact GITHUB_SHA blob batch exceeds repository-view limits.');
+    }
+    await materializeBatch(paths.objects, paths.workspace, blobs, sizes);
+}
+function validateBatchChecks(value, blobs) {
+    const normalized = value.trimEnd();
+    const lines = normalized === '' ? [] : normalized.split('\n');
+    if (lines.length !== blobs.length)
+        throw repositoryError('Git returned an incomplete blob-size batch.');
+    const sizes = [];
+    let total = 0;
+    for (const [index, line] of lines.entries()) {
+        const match = /^([0-9a-f]+) blob ([0-9]+)$/u.exec(line);
+        const expected = blobs[index];
+        if (match === null || expected === undefined || match[1] !== expected.object) {
+            throw repositoryError('Git returned an invalid blob-size batch.');
+        }
+        const size = Number(match[2]);
+        if (!Number.isSafeInteger(size) || size < 0 || size > MAX_REPOSITORY_BLOB_BYTES) {
+            throw repositoryError('The exact GITHUB_SHA tree contains an oversized blob.');
+        }
+        if (expected.mode === '120000' && size > MAX_SYMLINK_BYTES) {
+            throw repositoryError('The exact GITHUB_SHA tree contains an oversized symbolic link.');
+        }
+        sizes.push(size);
+        total += size;
+        if (total > MAX_REPOSITORY_VIEW_BYTES) {
+            throw repositoryError('The exact GITHUB_SHA tree exceeds the repository-view size limit.');
+        }
+    }
+    return sizes;
+}
+async function materializeBatch(batchPath, workspace, blobs, sizes) {
+    const batch = await (0,promises_namespaceObject.open)(batchPath, 'r');
+    let position = 0;
+    try {
+        for (const [index, entry] of blobs.entries()) {
+            const size = sizes[index];
+            if (size === undefined)
+                throw repositoryError('Git returned an incomplete blob batch.');
+            const header = await readLine(batch, position);
+            position = header.next;
+            if (header.value !== `${entry.object} blob ${size.toString()}`) {
+                throw repositoryError('Git returned a mismatched blob batch.');
+            }
+            const destination = (0,external_node_path_namespaceObject.join)(workspace, ...entry.path.split('/'));
+            await (0,promises_namespaceObject.mkdir)((0,external_node_path_namespaceObject.dirname)(destination), { mode: 0o700, recursive: true });
+            if (entry.mode === '120000') {
+                const content = await readBytes(batch, position, size);
+                const target = new TextDecoder('utf-8', { fatal: true }).decode(content);
+                if (!safeLink(entry.path, target)) {
+                    throw repositoryError('The exact GITHUB_SHA tree contains an unsafe symbolic link.');
+                }
+                await (0,promises_namespaceObject.symlink)(target, destination);
+            }
+            else if (size === 0) {
+                await (0,promises_namespaceObject.writeFile)(destination, Buffer.alloc(0), { mode: entry.mode === '100755' ? 0o755 : 0o644 });
+            }
+            else {
+                await (0,external_node_stream_promises_namespaceObject.pipeline)((0,external_node_fs_namespaceObject.createReadStream)(batchPath, { end: position + size - 1, start: position }), (0,external_node_fs_namespaceObject.createWriteStream)(destination, { mode: entry.mode === '100755' ? 0o755 : 0o644 }));
+                await (0,promises_namespaceObject.chmod)(destination, entry.mode === '100755' ? 0o755 : 0o644);
+            }
+            position += size;
+            const separator = await readBytes(batch, position, 1);
+            if (separator[0] !== 10)
+                throw repositoryError('Git returned an invalid blob batch separator.');
+            position += 1;
+        }
+    }
+    catch (error) {
+        if (error instanceof SubmitDependenciesError)
+            throw error;
+        throw repositoryError('Could not materialize the exact GITHUB_SHA blobs.', error);
+    }
+    finally {
+        await batch.close();
+    }
+    const info = await (0,promises_namespaceObject.stat)(batchPath);
+    if (position !== info.size)
+        throw repositoryError('Git returned trailing data in the blob batch.');
+}
+async function readLine(file, position) {
+    const chunks = [];
+    let total = 0;
+    while (total <= 200) {
+        const chunk = Buffer.alloc(201 - total);
+        const result = await file.read(chunk, 0, chunk.length, position + total);
+        if (result.bytesRead === 0)
+            break;
+        const newline = chunk.subarray(0, result.bytesRead).indexOf(10);
+        if (newline !== -1) {
+            chunks.push(chunk.subarray(0, newline));
+            const value = Buffer.concat(chunks).toString('ascii');
+            return { next: position + total + newline + 1, value };
+        }
+        chunks.push(chunk.subarray(0, result.bytesRead));
+        total += result.bytesRead;
+    }
+    throw repositoryError('Git returned an invalid blob batch header.');
+}
+async function readBytes(file, position, length) {
+    const value = Buffer.alloc(length);
+    let offset = 0;
+    while (offset < length) {
+        const result = await file.read(value, offset, length - offset, position + offset);
+        if (result.bytesRead === 0)
+            throw repositoryError('Git returned a truncated blob batch.');
+        offset += result.bytesRead;
+    }
+    return value;
+}
+async function runGitBatch(arguments_, input, output, options, message) {
+    const [inputFile, outputFile] = await Promise.all([
+        (0,promises_namespaceObject.open)(input, 'r'),
+        (0,promises_namespaceObject.open)(output, 'w', 0o600),
+    ]);
+    try {
+        await new Promise((resolvePromise, reject) => {
+            const child = (0,external_node_child_process_namespaceObject.spawn)('git', [...arguments_], {
+                cwd: options.cwd,
+                env: options.environment,
+                stdio: [inputFile.fd, outputFile.fd, 'ignore'],
+                windowsHide: true,
+            });
+            child.once('error', reject);
+            child.once('close', (code, signal) => {
+                if (code === 0)
+                    resolvePromise();
+                else
+                    reject(new Error(`git exited with code ${String(code)} and signal ${String(signal)}`));
+            });
+        });
+    }
+    catch (error) {
+        throw repositoryError(message, error);
+    }
+    finally {
+        await Promise.all([inputFile.close(), outputFile.close()]);
+    }
+}
+function safeTreePath(path) {
+    if (path === '' || path.includes('\0') || external_node_path_namespaceObject.posix.isAbsolute(path))
+        return false;
+    const normalized = external_node_path_namespaceObject.posix.normalize(path);
+    return normalized === path && normalized !== '..' && !normalized.startsWith('../');
+}
+function safeLink(path, target) {
+    if (target === '' || target.includes('\0') || external_node_path_namespaceObject.posix.isAbsolute(target))
+        return false;
+    const resolved = external_node_path_namespaceObject.posix.normalize(external_node_path_namespaceObject.posix.join(external_node_path_namespaceObject.posix.dirname(path), target));
+    return resolved !== '..' && !resolved.startsWith('../');
+}
+async function verifyTree(workspace, tree, objectFormat) {
+    await verifyViewShape(workspace, tree);
+    for (const entry of tree.values()) {
+        if (entry.type === 'commit')
+            continue;
+        const path = (0,external_node_path_namespaceObject.join)(workspace, ...entry.path.split('/'));
+        if (entry.mode === '120000') {
+            await verifySymbolicLink(path, entry, objectFormat);
+        }
+        else {
+            await verifyRegularBlob(path, entry, 'The private repository view changed after export.', objectFormat);
+        }
+    }
+}
+async function verifyViewShape(workspace, tree) {
+    const expectedFiles = new Set([...tree.values()].filter((entry) => entry.type === 'blob').map((entry) => entry.path));
+    const expectedDirectories = new Set();
+    for (const path of expectedFiles) {
+        let parent = external_node_path_namespaceObject.posix.dirname(path);
+        while (parent !== '.') {
+            expectedDirectories.add(parent);
+            parent = external_node_path_namespaceObject.posix.dirname(parent);
+        }
+    }
+    const foundFiles = new Set();
+    const pending = [''];
+    let entries = 0;
+    try {
+        while (pending.length !== 0) {
+            const directory = pending.pop();
+            if (directory === undefined)
+                break;
+            const children = await (0,promises_namespaceObject.readdir)(directory === '' ? workspace : (0,external_node_path_namespaceObject.join)(workspace, ...directory.split('/')), { withFileTypes: true });
+            for (const child of children) {
+                const path = directory === '' ? child.name : external_node_path_namespaceObject.posix.join(directory, child.name);
+                entries += 1;
+                if (entries > MAX_REPOSITORY_VIEW_ENTRIES + expectedDirectories.size) {
+                    throw new Error('repository view contains too many entries');
+                }
+                if (child.isDirectory()) {
+                    if (!expectedDirectories.has(path))
+                        throw new Error('repository view contains an added directory');
+                    pending.push(path);
+                }
+                else if (child.isFile() || child.isSymbolicLink()) {
+                    if (!expectedFiles.has(path))
+                        throw new Error('repository view contains an added file');
+                    foundFiles.add(path);
+                }
+                else {
+                    throw new Error('repository view contains a special file');
+                }
+            }
+        }
+        if (foundFiles.size !== expectedFiles.size)
+            throw new Error('repository view is missing a tracked file');
+    }
+    catch (error) {
+        throw repositoryError('The private repository view changed after export.', error);
+    }
+}
+async function verifySymbolicLink(path, entry, objectFormat) {
+    try {
+        const info = await (0,promises_namespaceObject.lstat)(path);
+        if (!info.isSymbolicLink())
+            throw new Error('not a symbolic link');
+        const target = await (0,promises_namespaceObject.readlink)(path);
+        if (!safeLink(entry.path, target) || gitBlobHash(Buffer.from(target), objectFormat) !== entry.object) {
+            throw new Error('symbolic link differs');
+        }
+    }
+    catch (error) {
+        throw repositoryError('The private repository view contains a changed or unsafe symbolic link.', error);
+    }
+}
+async function verifyRegularBlob(path, entry, message, objectFormat) {
+    try {
+        const info = await (0,promises_namespaceObject.lstat)(path);
+        if (!info.isFile() || info.isSymbolicLink())
+            throw new Error('not a regular file');
+        const executable = (info.mode & 0o111) !== 0;
+        if (executable !== (entry.mode === '100755'))
+            throw new Error('file mode differs');
+        const format = objectFormat ?? (entry.object.length === 40 ? 'sha1' : 'sha256');
+        if (await gitFileHash(path, info.size, format) !== entry.object) {
+            throw new Error(`file bytes differ: ${entry.path}`);
+        }
+    }
+    catch (error) {
+        throw repositoryError(message, error);
+    }
+}
+async function gitFileHash(path, size, objectFormat) {
+    const hash = (0,external_node_crypto_.createHash)(objectFormat);
+    hash.update(`blob ${size.toString()}\0`);
+    for await (const chunk of (0,external_node_fs_namespaceObject.createReadStream)(path))
+        hash.update(chunk);
+    return hash.digest('hex');
+}
+function gitBlobHash(value, objectFormat) {
+    return (0,external_node_crypto_.createHash)(objectFormat)
+        .update(`blob ${value.byteLength.toString()}\0`)
+        .update(value)
+        .digest('hex');
 }
 async function runGit(arguments_, options) {
     const result = await execute('git', [...arguments_], {
         cwd: options.cwd,
         encoding: 'utf8',
         env: options.environment,
-        maxBuffer: 1024 * 1024,
-        timeout: 30_000,
+        maxBuffer: MAX_GIT_OUTPUT_BYTES,
+        timeout: 120_000,
         windowsHide: true,
     });
     return result.stdout;
+}
+function validObjectId(value) {
+    return /^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$/u.test(value);
 }
 async function git(runner, arguments_, options, message) {
     try {
@@ -34789,10 +35216,19 @@ function gitEnvironment(source) {
     const allowed = ['LANG', 'LC_ALL', 'PATH', 'TMPDIR'];
     return {
         ...Object.fromEntries(allowed.flatMap((key) => source[key] === undefined ? [] : [[key, source[key]]])),
+        GIT_ATTR_NOSYSTEM: '1',
         GIT_CONFIG_GLOBAL: '/dev/null',
         GIT_CONFIG_NOSYSTEM: '1',
         GIT_OPTIONAL_LOCKS: '0',
     };
+}
+async function removeView(root) {
+    try {
+        await (0,promises_namespaceObject.rm)(root, { force: true, recursive: true });
+    }
+    catch (error) {
+        throw repositoryError('Could not remove the private repository view.', error);
+    }
 }
 function repositoryError(message, cause) {
     return new SubmitDependenciesError('ZOLT-GIT-001', message, cause === undefined ? undefined : { cause });
@@ -34838,8 +35274,6 @@ function contextError(message) {
     return new SubmitDependenciesError('ZOLT-GITHUB-001', `Invalid GitHub Actions context: ${message}`);
 }
 
-// EXTERNAL MODULE: external "node:crypto"
-var external_node_crypto_ = __nccwpck_require__(7598);
 ;// CONCATENATED MODULE: ./src/github/snapshot.ts
 
 
@@ -39733,7 +40167,7 @@ function renderClearSummary(input) {
     ].join('\n');
 }
 function escapeCode(value) {
-    return value.replace(/`/gu, '\\`').replace(/[\r\n]/gu, ' ');
+    return value.replace(/`/gu, '\\`').replace(/\|/gu, '\\|').replace(/[\r\n]/gu, ' ');
 }
 
 ;// CONCATENATED MODULE: ./src/inputs.ts
@@ -39787,8 +40221,6 @@ function parseBoolean(name, value) {
     throw new SubmitDependenciesError('ZOLT-INPUT-005', `${name} must be true or false; received ${JSON.stringify(normalized)}.`);
 }
 
-;// CONCATENATED MODULE: external "node:os"
-const external_node_os_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:os");
 ;// CONCATENATED MODULE: ./src/generated/zolt-release.ts
 // Workspace-capable release candidate. Keep the version and every platform
 // digest aligned with the immutable Zolt channel manifest.
@@ -39813,8 +40245,6 @@ var external_node_events_ = __nccwpck_require__(8474);
 var external_node_stream_ = __nccwpck_require__(7075);
 ;// CONCATENATED MODULE: external "node:string_decoder"
 const external_node_string_decoder_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:string_decoder");
-;// CONCATENATED MODULE: external "node:fs"
-const external_node_fs_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:fs");
 ;// CONCATENATED MODULE: external "buffer"
 const external_buffer_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("buffer");
 ;// CONCATENATED MODULE: external "zlib"
@@ -39956,8 +40386,6 @@ function archiveError(message, cause) {
     return new SubmitDependenciesError('ZOLT-INSTALL-010', message, cause === undefined ? undefined : { cause });
 }
 
-;// CONCATENATED MODULE: external "node:stream/promises"
-const external_node_stream_promises_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:stream/promises");
 ;// CONCATENATED MODULE: ./src/install/download.ts
 
 
@@ -40325,6 +40753,10 @@ async function requiredFile(path, workspaceRoot, label) {
 }
 async function regularFileInside(path, workspaceRoot, required) {
     try {
+        const logical = await (0,promises_namespaceObject.lstat)(path);
+        if (!logical.isFile() || logical.isSymbolicLink()) {
+            throw new SubmitDependenciesError('ZOLT-WORKSPACE-004', `Expected a regular file at ${path}.`);
+        }
         const resolved = await (0,promises_namespaceObject.realpath)(path);
         if (!contained(workspaceRoot, resolved)) {
             throw new SubmitDependenciesError('ZOLT-WORKSPACE-003', `Configuration path resolves outside GITHUB_WORKSPACE: ${path}.`);
@@ -40376,7 +40808,8 @@ function contained(root, candidate) {
 async function captureZoltOutputs(binary, inputs, repository, dependencies = {}) {
     const environment = dependencies.environment ?? process.env;
     const secrets = registeredSecrets(environment, [inputs.githubToken]);
-    const selection = await (dependencies.select ?? selectZoltProject)(repository, inputs.workspace);
+    const selection = dependencies.selection
+        ?? await (dependencies.select ?? selectZoltProject)(repository, inputs.workspace);
     const temporaryBase = dependencies.temporaryRoot ?? environment.RUNNER_TEMP ?? (0,external_node_os_namespaceObject.tmpdir)();
     await (0,promises_namespaceObject.mkdir)(temporaryBase, { mode: 0o700, recursive: true });
     const work = await (0,promises_namespaceObject.mkdtemp)((0,external_node_path_namespaceObject.join)(temporaryBase, 'zolt-dependency-submission-'));
@@ -40498,10 +40931,12 @@ function sbomArguments(selection, output, cacheRoot) {
 
 
 
+
 async function runAction(dependencies = {}) {
     const actionCore = dependencies.core ?? core_namespaceObject;
     const environment = dependencies.environment ?? process.env;
     let installed;
+    let repositoryView;
     let secrets = registeredSecrets(environment);
     const maskedSecrets = new Set();
     try {
@@ -40514,22 +40949,27 @@ async function runAction(dependencies = {}) {
             if (!maskedSecrets.has(secret))
                 actionCore.setSecret(secret);
         }
-        const [context, submissionContext] = await Promise.all([
-            (dependencies.resolveContext ?? resolveExecutionContext)(inputs, environment),
-            Promise.resolve((dependencies.resolveSubmissionContext ?? readGitHubSubmissionContext)(environment)),
-        ]);
+        const submissionContext = (dependencies.resolveSubmissionContext ?? readGitHubSubmissionContext)(environment);
+        const target = inputs.state === 'submit'
+            ? resolveTarget(dependencies.platform ?? process.platform, dependencies.architecture ?? process.arch)
+            : undefined;
+        repositoryView = await (dependencies.prepareRepository ?? createRepositoryView)({
+            directory: inputs.state === 'clear' ? '.' : inputs.directory,
+            expectedSha: submissionContext.sha,
+            workspace: environment.GITHUB_WORKSPACE,
+        }, { environment });
+        const context = await (dependencies.resolveContext ?? resolveExecutionContext)({
+            ...inputs,
+            directory: repositoryView.directoryInput,
+        }, { ...environment, GITHUB_WORKSPACE: repositoryView.workspace });
         if (inputs.state === 'clear') {
             const manifestPath = inputs.manifestPath;
             if (manifestPath === undefined) {
                 throw new SubmitDependenciesError('ZOLT-INPUT-009', 'manifest-path is required when state is clear.');
             }
-            await (dependencies.verifyRepository ?? verifyRepositoryState)({
-                expectedSha: submissionContext.sha,
-                manifestPath,
-                state: inputs.state,
-                workspace: context.repository.workspace,
-            }, { environment });
-            actionCore.info(`Validated ${manifestPath} tombstone on ${context.event.defaultBranch}.`);
+            await repositoryView.verifyManifest({ manifestPath, state: inputs.state });
+            actionCore.info(`Validated ${publicText(manifestPath, secrets)} tombstone on ${publicText(context.event.defaultBranch, secrets)}.`);
+            await repositoryView.verifyManifest({ manifestPath, state: inputs.state });
             const snapshot = buildClearSnapshot({
                 context: submissionContext,
                 manifestPath,
@@ -40543,20 +40983,20 @@ async function runAction(dependencies = {}) {
                 manifestPath,
                 snapshotId: submission.id,
             }));
-            actionCore.info(`Cleared dependency snapshot ${submission.id.toString()} for ${manifestPath}.`);
+            actionCore.info(`Cleared dependency snapshot ${submission.id.toString()} for ${publicText(manifestPath, secrets)}.`);
             return;
         }
-        const target = resolveTarget(dependencies.platform ?? process.platform, dependencies.architecture ?? process.arch);
-        actionCore.info(`Validated ${context.repository.relativeDirectory} on ${context.event.defaultBranch}; installing pinned Zolt for ${target}.`);
+        if (target === undefined)
+            throw new SubmitDependenciesError('ZOLT-PLATFORM-001', 'No release target was selected.');
+        const selection = await (dependencies.selectProject ?? selectZoltProject)(context.repository, inputs.workspace);
+        await repositoryView.verifyManifest({ manifestPath: selection.manifestPath, state: inputs.state });
+        actionCore.info(`Validated ${publicText(context.repository.relativeDirectory, secrets)} on ${publicText(context.event.defaultBranch, secrets)}; installing pinned Zolt for ${target}.`);
         installed = await (dependencies.install ?? installZolt)(target, { environment });
         actionCore.info(`Verified pinned Zolt ${installed.version} for ${installed.target}; SHA-256 ${installed.sha256}.`);
-        const machine = await (dependencies.capture ?? captureZoltOutputs)(installed.binary, inputs, context.repository, { environment });
-        await (dependencies.verifyRepository ?? verifyRepositoryState)({
-            expectedSha: submissionContext.sha,
-            manifestPath: machine.manifestPath,
-            state: inputs.state,
-            workspace: context.repository.workspace,
-        }, { environment });
+        const machine = await (dependencies.capture ?? captureZoltOutputs)(installed.binary, inputs, context.repository, { environment, selection });
+        if (machine.manifestPath !== selection.manifestPath || machine.mode !== selection.mode) {
+            throw new SubmitDependenciesError('ZOLT-GRAPH-015', 'The verified project selection changed during Zolt analysis. No dependency snapshot was submitted.');
+        }
         const manifest = (dependencies.convertGraph ?? convert)({
             bom: machine.bom,
             manifestPath: machine.manifestPath,
@@ -40564,6 +41004,7 @@ async function runAction(dependencies = {}) {
             tree: machine.tree,
         });
         assertMode(machine.mode, manifest);
+        await repositoryView.verifyManifest({ manifestPath: machine.manifestPath, state: inputs.state });
         const snapshot = buildSnapshot({
             context: submissionContext,
             manifest,
@@ -40593,6 +41034,14 @@ async function runAction(dependencies = {}) {
             }
             catch (error) {
                 actionCore.setFailed(`ZOLT-CLEANUP-001: Could not remove the private Zolt installation: ${publicErrorMessage(error, secrets)}.`);
+            }
+        }
+        if (repositoryView !== undefined) {
+            try {
+                await repositoryView.cleanup();
+            }
+            catch (error) {
+                actionCore.setFailed(`ZOLT-CLEANUP-003: Could not remove the private repository view: ${publicErrorMessage(error, secrets)}.`);
             }
         }
     }

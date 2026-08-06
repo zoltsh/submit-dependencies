@@ -52,5 +52,5 @@ export function renderClearSummary(input: ClearSummaryInput): string {
 }
 
 function escapeCode(value: string): string {
-    return value.replace(/`/gu, '\\`').replace(/[\r\n]/gu, ' ');
+    return value.replace(/`/gu, '\\`').replace(/\|/gu, '\\|').replace(/[\r\n]/gu, ' ');
 }

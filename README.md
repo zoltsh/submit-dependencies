@@ -60,16 +60,22 @@ jobs:
 ```
 
 GitHub requires `contents: write` to accept dependency snapshots. The action
-rejects pull requests, merge queues, forks, and non-default branches.
+rejects pull requests, merge queues, non-default branches, and attempts to
+submit across repositories. A fork can submit to its own dependency graph.
 
 ## What it does
 
-The action installs a checksum-pinned Zolt release, reads the committed lockfile
-with `zolt tree` and `zolt sbom`, checks that both graphs agree, and submits the
-result to GitHub.
+Before downloading or running Zolt, the action copies the tracked files from
+the exact `GITHUB_SHA` into a private directory. It reads Zolt configuration and
+the lockfile only from that copy. Dirty files in the checkout cannot change the
+graph.
 
-The checkout must be at `GITHUB_SHA`. In submit mode, the selected `zolt.lock`
-must be tracked and unmodified. Generated or modified lockfiles are rejected.
+The selected checkout `zolt.lock` must still have the same mode and bytes as
+`GITHUB_SHA`. The action checks it before installing Zolt and again before
+submitting.
+
+The action runs `zolt tree` and `zolt sbom` with a checksum-pinned Zolt release,
+checks that both graphs agree, and submits the result to GitHub.
 
 It includes direct and transitive dependencies, scopes, classifiers, artifact
 types, and child edges. Workspace members are excluded as first-party packages.
@@ -116,6 +122,9 @@ This submits an empty snapshot with the old lockfile's stable identity. It does
 not install or run Zolt. For a rename, submit the new path and clear the old
 path. If one workflow submits several locks, append a stable manifest key to
 that job's concurrency group so unrelated locks do not cancel each other.
+
+The path must be absent from `GITHUB_SHA`, the checkout index, and the checkout.
+A path that never existed is also accepted, so repeating a clear is safe.
 
 ## Outputs
 

@@ -63,6 +63,6 @@ describe('Zolt project selection', () => {
         await writeFile(join(repo.workspace, 'zolt.toml'), '[project]\nname = "demo"\n');
         await writeFile(join(outside.workspace, 'outside.lock'), 'version = 5\n');
         await symlink(join(outside.workspace, 'outside.lock'), join(repo.workspace, 'zolt.lock'));
-        await expect(selectZoltProject(repo, 'false')).rejects.toThrow('ZOLT-WORKSPACE-003');
+        await expect(selectZoltProject(repo, 'false')).rejects.toThrow('ZOLT-WORKSPACE-004');
     });
 });

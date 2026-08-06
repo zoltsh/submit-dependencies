@@ -32,10 +32,13 @@ describe('repository directory', () => {
     it('rejects missing workspaces, files, and symlink escapes', async () => {
         const root = await temporary();
         const outside = await temporary();
+        await mkdir(join(root, 'project'));
         await writeFile(join(root, 'file'), 'x');
         await symlink(outside, join(root, 'escape'));
+        await symlink('project', join(root, 'alias'));
         await expect(resolveRepositoryDirectory(undefined, '.')).rejects.toThrow('ZOLT-INPUT-006');
         await expect(resolveRepositoryDirectory(root, 'file')).rejects.toThrow('ZOLT-INPUT-007');
         await expect(resolveRepositoryDirectory(root, 'escape')).rejects.toThrow('ZOLT-INPUT-004');
+        await expect(resolveRepositoryDirectory(root, 'alias')).rejects.toThrow('ZOLT-INPUT-004');
     });
 });

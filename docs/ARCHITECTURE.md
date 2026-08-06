@@ -4,7 +4,7 @@
 snapshot.
 
 ```text
-repository and event checks
+event checks + immutable GITHUB_SHA view
     |
     v
 verified Zolt binary
@@ -19,14 +19,15 @@ strict decode and graph comparison
 GitHub dependency snapshot
 ```
 
-`state: clear` takes the shorter path from event checks to an empty snapshot
-for one explicit manifest path. It never installs or runs Zolt.
+`state: clear` takes the shorter path from the immutable view to an empty
+snapshot for one explicit path. The path must be absent from the commit, index,
+and checkout. It never installs or runs Zolt.
 
 ## Modules
 
 | Module | Responsibility |
 | :--- | :--- |
-| `environment` | Resolve paths and allow only default-branch submissions |
+| `environment` | Enforce events and build the private `GITHUB_SHA` view |
 | `install` | Download, inspect, verify, and clean up Zolt |
 | `zolt` | Select the project or workspace and collect tree and SBOM output |
 | `contracts` | Decode the supported Zolt and CycloneDX formats |
@@ -35,8 +36,8 @@ for one explicit manifest path. It never installs or runs Zolt.
 
 ## Rules
 
-1. Repository paths stay inside `GITHUB_WORKSPACE`; submitted locks are tracked,
-   unmodified files at `GITHUB_SHA`.
+1. Repository paths stay inside `GITHUB_WORKSPACE`. Analysis reads tracked blobs
+   from a private copy of the exact `GITHUB_SHA`.
 2. The action runs one exact Zolt version with one checksum per target.
 3. Tree data supplies scope and directness. CycloneDX supplies Maven PURLs and
    workspace context.
@@ -46,9 +47,11 @@ for one explicit manifest path. It never installs or runs Zolt.
 6. Classifiers and non-default artifact types stay distinct.
 7. Workspace members are never submitted as external dependencies.
 8. Snapshot identity is stable for each repository-relative lockfile path.
-9. The default branch tip must still equal the run SHA immediately before POST.
-10. The GitHub token never reaches Zolt or machine-output diagnostics.
-11. Unknown schemas, scopes, PURLs, edges, or lock versions fail before the API
+9. The selected checkout lock and private view are checked before installation
+   and again before the snapshot is built.
+10. The default branch tip must still equal the run SHA immediately before POST.
+11. The GitHub token never reaches Zolt or machine-output diagnostics.
+12. Unknown schemas, scopes, PURLs, edges, or lock versions fail before the API
     call.
 
 ## Compatibility

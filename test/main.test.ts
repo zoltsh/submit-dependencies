@@ -51,8 +51,18 @@ function manifest(mode: 'project' | 'workspace' = 'project'): ConvertedManifest 
     };
 }
 
-function happyDependencies(core: ActionCore): ActionDependencies & { cleanup: ReturnType<typeof vi.fn> } {
+function happyDependencies(core: ActionCore): ActionDependencies & {
+    cleanup: ReturnType<typeof vi.fn>;
+    verifyManifest: ReturnType<typeof vi.fn>;
+    viewCleanup: ReturnType<typeof vi.fn>;
+} {
     const cleanup = vi.fn(async () => {
+        await Promise.resolve();
+    });
+    const verifyManifest = vi.fn(async () => {
+        await Promise.resolve();
+    });
+    const viewCleanup = vi.fn(async () => {
         await Promise.resolve();
     });
     const installed: InstalledZolt = {
@@ -70,15 +80,23 @@ function happyDependencies(core: ActionCore): ActionDependencies & { cleanup: Re
         install: async () => await Promise.resolve(installed),
         now: () => new Date('2026-08-05T00:00:00.000Z'),
         platform: 'linux',
+        prepareRepository: async () => await Promise.resolve({
+            cleanup: viewCleanup,
+            directoryInput: '.',
+            verifyManifest,
+            workspace: '/repo',
+        }),
         resolveContext: async () => await Promise.resolve({
             event: { defaultBranch: 'main', eventName: 'push' },
             repository: { directory: '/repo', relativeDirectory: '.', workspace: '/repo' },
         }),
         resolveSubmissionContext: () => submissionContext,
+        selectProject: async () => await Promise.resolve({
+            lockfile: '/repo/zolt.lock', manifestPath: 'zolt.lock', mode: 'project', root: '/repo',
+        }),
         submit: async () => await Promise.resolve({ id: 456, result: 'SUCCESS' }),
-        verifyRepository: async () => {
-            await Promise.resolve();
-        },
+        verifyManifest,
+        viewCleanup,
         writeSummary: async () => {
             await Promise.resolve();
         },
@@ -89,10 +107,10 @@ describe('action adapter', () => {
     it('runs analysis, submits a snapshot, sets outputs, summarizes, and cleans up', async () => {
         const core = actionCore({ 'github-token': 'super-secret' });
         const dependencies = happyDependencies(core);
+        const install = vi.fn(dependencies.install);
         const submit = vi.fn(dependencies.submit);
-        const verifyRepository = vi.fn(dependencies.verifyRepository);
         const writeSummary = vi.fn(dependencies.writeSummary);
-        await runAction({ ...dependencies, submit, verifyRepository, writeSummary });
+        await runAction({ ...dependencies, install, submit, writeSummary });
 
         expect(core.secrets).toEqual(['super-secret', 'non-github-secret']);
         expect(core.outputs).toEqual(new Map<string, unknown>([
@@ -100,15 +118,23 @@ describe('action adapter', () => {
         ]));
         expect(core.failed).toEqual([]);
         expect(dependencies.cleanup).toHaveBeenCalledOnce();
+        expect(dependencies.viewCleanup).toHaveBeenCalledOnce();
         expect(submit).toHaveBeenCalledWith('super-secret', submissionContext, expect.objectContaining({
             scanned: '2026-08-05T00:00:00.000Z', version: 0,
         }));
-        expect(verifyRepository).toHaveBeenCalledWith({
-            expectedSha: submissionContext.sha,
-            manifestPath: 'zolt.lock',
-            state: 'submit',
-            workspace: '/repo',
-        }, { environment: dependencies.environment });
+        expect(dependencies.verifyManifest).toHaveBeenCalledTimes(2);
+        expect(dependencies.verifyManifest).toHaveBeenNthCalledWith(1, {
+            manifestPath: 'zolt.lock', state: 'submit',
+        });
+        expect(dependencies.verifyManifest).toHaveBeenNthCalledWith(2, {
+            manifestPath: 'zolt.lock', state: 'submit',
+        });
+        expect(dependencies.verifyManifest.mock.invocationCallOrder[0]).toBeLessThan(
+            install.mock.invocationCallOrder[0] ?? 0,
+        );
+        expect(dependencies.verifyManifest.mock.invocationCallOrder[1]).toBeLessThan(
+            submit.mock.invocationCallOrder[0] ?? 0,
+        );
         expect(writeSummary).toHaveBeenCalledWith(expect.stringContaining('| Snapshot ID | 456 |'));
         expect(core.infoMock).toHaveBeenCalledWith('Zolt warning: one warning');
     });
@@ -123,23 +149,21 @@ describe('action adapter', () => {
         const install = vi.fn(dependencies.install);
         const capture = vi.fn(dependencies.capture);
         const submit = vi.fn(dependencies.submit);
-        const verifyRepository = vi.fn(dependencies.verifyRepository);
         const writeSummary = vi.fn(dependencies.writeSummary);
-        await runAction({ ...dependencies, capture, install, submit, verifyRepository, writeSummary });
+        await runAction({ ...dependencies, capture, install, submit, writeSummary });
 
         expect(install).not.toHaveBeenCalled();
         expect(capture).not.toHaveBeenCalled();
         expect(dependencies.cleanup).not.toHaveBeenCalled();
+        expect(dependencies.viewCleanup).toHaveBeenCalledOnce();
         expect(core.outputs).toEqual(new Map<string, unknown>([
             ['snapshot-id', 456], ['dependency-count', 0], ['zolt-version', ''],
         ]));
         expect(submit).toHaveBeenCalledWith('super-secret', submissionContext, expect.any(Object));
-        expect(verifyRepository).toHaveBeenCalledWith({
-            expectedSha: submissionContext.sha,
-            manifestPath: 'services/removed/zolt.lock',
-            state: 'clear',
-            workspace: '/repo',
-        }, { environment: dependencies.environment });
+        expect(dependencies.verifyManifest).toHaveBeenCalledTimes(2);
+        expect(dependencies.verifyManifest).toHaveBeenCalledWith({
+            manifestPath: 'services/removed/zolt.lock', state: 'clear',
+        });
         const submitted = submit.mock.calls.at(0)?.[2];
         expect(submitted?.manifests['services/removed/zolt.lock']?.resolved).toEqual({});
         expect(writeSummary).toHaveBeenCalledWith(expect.stringContaining('Zolt dependency snapshot cleared'));
@@ -159,6 +183,42 @@ describe('action adapter', () => {
             },
         });
         expect(core.failed).toEqual(['ZOLT-TEST-001: failure contained *** and ***']);
+    });
+
+    it('does not submit when the final repository check fails', async () => {
+        const core = actionCore({ 'github-token': 'super-secret' });
+        const dependencies = happyDependencies(core);
+        dependencies.verifyManifest
+            .mockResolvedValueOnce(undefined)
+            .mockRejectedValueOnce(new SubmitDependenciesError(
+                'ZOLT-GIT-001',
+                'The private repository view changed after export.',
+            ));
+        const submit = vi.fn(dependencies.submit);
+
+        await runAction({ ...dependencies, submit });
+
+        expect(core.failed).toEqual([
+            'ZOLT-GIT-001: The private repository view changed after export.',
+        ]);
+        expect(submit).not.toHaveBeenCalled();
+    });
+
+    it('sanitizes external directory and branch values in informational logs', async () => {
+        const core = actionCore({ 'github-token': 'super-secret' });
+        await runAction({
+            ...happyDependencies(core),
+            resolveContext: async () => await Promise.resolve({
+                event: { defaultBranch: 'main\n::error::branch', eventName: 'push' },
+                repository: {
+                    directory: '/repo', relativeDirectory: '.\n::warning::directory', workspace: '/repo',
+                },
+            }),
+        });
+        const first = String(core.infoMock.mock.calls[0]?.[0]);
+        expect(first).not.toContain('\n');
+        expect(first).not.toContain('::error::');
+        expect(first).not.toContain('::warning::');
     });
 
     it('reports an empty token before creating any external adapters', async () => {

@@ -5,4 +5,7 @@ export const MAX_ARCHIVE_ENTRIES = 10_000;
 export const MAX_ARCHIVE_ENTRY_BYTES = 256 * 1024 * 1024;
 export const MAX_EVENT_BYTES = 1024 * 1024;
 export const MAX_EXTRACTED_BYTES = 512 * 1024 * 1024;
+export const MAX_REPOSITORY_BLOB_BYTES = 256 * 1024 * 1024;
+export const MAX_REPOSITORY_VIEW_BYTES = 512 * 1024 * 1024;
+export const MAX_REPOSITORY_VIEW_ENTRIES = 50_000;
 export const RELEASE_ASSET_ORIGIN = 'https://github.com/zoltsh/releases/releases/download';

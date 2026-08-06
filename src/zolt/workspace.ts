@@ -65,6 +65,10 @@ async function requiredFile(path: string, workspaceRoot: string, label: string):
 
 async function regularFileInside(path: string, workspaceRoot: string, required: boolean): Promise<string | undefined> {
     try {
+        const logical = await lstat(path);
+        if (!logical.isFile() || logical.isSymbolicLink()) {
+            throw new SubmitDependenciesError('ZOLT-WORKSPACE-004', `Expected a regular file at ${path}.`);
+        }
         const resolved = await realpath(path);
         if (!contained(workspaceRoot, resolved)) {
             throw new SubmitDependenciesError('ZOLT-WORKSPACE-003', `Configuration path resolves outside GITHUB_WORKSPACE: ${path}.`);

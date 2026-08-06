@@ -23,6 +23,7 @@ export interface AnalysisDependencies {
     readonly remove?: (path: string) => Promise<void>;
     readonly runner?: ZoltRunner;
     readonly select?: typeof selectZoltProject;
+    readonly selection?: ZoltProjectSelection;
     readonly temporaryRoot?: string;
 }
 
@@ -34,7 +35,8 @@ export async function captureZoltOutputs(
 ): Promise<ZoltMachineOutputs> {
     const environment = dependencies.environment ?? process.env;
     const secrets = registeredSecrets(environment, [inputs.githubToken]);
-    const selection = await (dependencies.select ?? selectZoltProject)(repository, inputs.workspace);
+    const selection = dependencies.selection
+        ?? await (dependencies.select ?? selectZoltProject)(repository, inputs.workspace);
     const temporaryBase = dependencies.temporaryRoot ?? environment.RUNNER_TEMP ?? tmpdir();
     await mkdir(temporaryBase, { mode: 0o700, recursive: true });
     const work = await mkdtemp(join(temporaryBase, 'zolt-dependency-submission-'));

@@ -24,7 +24,7 @@ inputs:
     required: false
     default: submit
   manifest-path:
-    description: Canonical repository-relative zolt.lock path to clear; required only when state is clear
+    description: Absent repository-relative zolt.lock path to clear; required only when state is clear
     required: false
 
 outputs:

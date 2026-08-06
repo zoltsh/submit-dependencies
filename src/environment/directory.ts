@@ -26,6 +26,13 @@ export async function resolveRepositoryDirectory(
             `directory resolves outside GITHUB_WORKSPACE. Resolved path: ${directory}. Choose a project within the checked-out repository.`,
         );
     }
+    const logical = relative(workspace, resolve(candidate));
+    if (logical !== rel) {
+        throw new SubmitDependenciesError(
+            'ZOLT-INPUT-004',
+            'directory must not resolve through a symbolic-link alias. Choose the committed project directory directly.',
+        );
+    }
     return { directory, relativeDirectory: rel === '' ? '.' : rel, workspace };
 }
 
