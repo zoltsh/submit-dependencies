@@ -2,7 +2,6 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 import { SubmitDependenciesError } from '../errors';
-import { publicBufferText, publicText, registeredSecrets } from '../public-output';
 
 const execute = promisify(execFile);
 export const MAX_MACHINE_DOCUMENT_BYTES = 64 * 1024 * 1024;
@@ -40,11 +39,9 @@ export async function runZolt(
         });
         return { stderr: result.stderr, stdout: result.stdout };
     } catch (error) {
-        const failure = error as NodeJS.ErrnoException & { stderr?: Buffer | string };
-        const stderr = safeStderr(failure.stderr, registeredSecrets(options.environment));
         throw new SubmitDependenciesError(
             'ZOLT-PROCESS-001',
-            `${options.label} failed${stderr === '' ? '.' : `: ${stderr}`}`,
+            `${options.label} failed.`,
             { cause: error },
         );
     }
@@ -66,9 +63,4 @@ export function validationEnvironment(source: NodeJS.ProcessEnv, githubToken: st
     ]);
     return Object.fromEntries(Object.entries(source).filter(([key, value]) =>
         !denied.has(key) && !/^ACTIONS_.*TOKEN$/u.test(key) && value !== githubToken));
-}
-
-function safeStderr(value: Buffer | string | undefined, secrets: readonly string[]): string {
-    if (value === undefined) return '';
-    return Buffer.isBuffer(value) ? publicBufferText(value, secrets) : publicText(value, secrets);
 }

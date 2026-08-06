@@ -40046,68 +40046,7 @@ function assertResponse(message, maximumBytes) {
     }
 }
 
-;// CONCATENATED MODULE: ./src/public-output.ts
-
-const MAX_PUBLIC_MESSAGE_CHARACTERS = 4096;
-const MAX_PUBLIC_SAMPLE_BYTES = 64 * 1024;
-const SENSITIVE_NAME = /(?:ACCESS_KEY|API_KEY|AUTH|CREDENTIAL|PASSWORD|PASSWD|PRIVATE_KEY|SECRET|TOKEN)/iu;
-const escapeCharacter = String.fromCodePoint(27);
-const bellCharacter = String.fromCodePoint(7);
-const ANSI_ESCAPE = new RegExp(`${escapeCharacter}(?:\\][^${bellCharacter}]*(?:${bellCharacter}|${escapeCharacter}\\\\)|\\[[0-?]*[ -/]*[@-~])`, 'gu');
-function registeredSecrets(environment, explicit = []) {
-    const values = new Set();
-    for (const value of explicit)
-        addSecret(values, value);
-    for (const [name, value] of Object.entries(environment)) {
-        if (SENSITIVE_NAME.test(name))
-            addSecret(values, value);
-    }
-    return [...values].sort((left, right) => right.length - left.length);
-}
-function publicBufferText(value, secrets, limit = MAX_PUBLIC_MESSAGE_CHARACTERS) {
-    return publicText(value.subarray(0, MAX_PUBLIC_SAMPLE_BYTES).toString('utf8'), secrets, limit);
-}
-function publicErrorMessage(error, secrets = []) {
-    const value = error instanceof SubmitDependenciesError
-        ? error.message
-        : 'ZOLT-UNEXPECTED-001: Unexpected action failure.';
-    return publicText(value, secrets);
-}
-function publicText(value, secrets = [], limit = MAX_PUBLIC_MESSAGE_CHARACTERS) {
-    let safe = value
-        .replace(ANSI_ESCAPE, '')
-        .split('')
-        .map((character) => isControlCharacter(character) ? ' ' : character)
-        .join('')
-        .replace(/\s+/gu, ' ')
-        .trim();
-    safe = redactSecrets(safe, secrets)
-        .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/giu, '$1***:***@')
-        .replace(/([?&](?:access_key|api_key|auth|credential|password|secret|token)=)[^&\s]+/giu, '$1***');
-    safe = redactSecrets(safe, secrets).replace(/::/gu, ': :');
-    if (safe.length <= limit)
-        return safe;
-    return `${safe.slice(0, Math.max(0, limit - 1))}…`;
-}
-function redactSecrets(value, secrets) {
-    let safe = value;
-    for (const secret of secrets) {
-        if (secret !== '')
-            safe = safe.split(secret).join('***');
-    }
-    return safe;
-}
-function addSecret(values, value) {
-    if (value !== undefined && value.length >= 4)
-        values.add(value);
-}
-function isControlCharacter(value) {
-    const codePoint = value.codePointAt(0);
-    return codePoint !== undefined && (codePoint <= 31 || codePoint >= 127 && codePoint <= 159);
-}
-
 ;// CONCATENATED MODULE: ./src/zolt/process.ts
-
 
 
 
@@ -40126,9 +40065,7 @@ async function runZolt(binary, arguments_, options) {
         return { stderr: result.stderr, stdout: result.stdout };
     }
     catch (error) {
-        const failure = error;
-        const stderr = safeStderr(failure.stderr, registeredSecrets(options.environment));
-        throw new SubmitDependenciesError('ZOLT-PROCESS-001', `${options.label} failed${stderr === '' ? '.' : `: ${stderr}`}`, { cause: error });
+        throw new SubmitDependenciesError('ZOLT-PROCESS-001', `${options.label} failed.`, { cause: error });
     }
 }
 function minimalZoltEnvironment(source) {
@@ -40145,11 +40082,6 @@ function validationEnvironment(source, githubToken) {
         'INPUT_GITHUB-TOKEN',
     ]);
     return Object.fromEntries(Object.entries(source).filter(([key, value]) => !denied.has(key) && !/^ACTIONS_.*TOKEN$/u.test(key) && value !== githubToken));
-}
-function safeStderr(value, secrets) {
-    if (value === undefined)
-        return '';
-    return Buffer.isBuffer(value) ? publicBufferText(value, secrets) : publicText(value, secrets);
 }
 
 ;// CONCATENATED MODULE: ./src/install/verify.ts
@@ -40242,6 +40174,66 @@ function resolveTarget(platform, architecture) {
         throw new SubmitDependenciesError('ZOLT-INSTALL-001', `zoltsh/submit-dependencies v${ACTION_VERSION} does not support Windows runners. Use a Linux or macOS runner.`);
     }
     throw new SubmitDependenciesError('ZOLT-INSTALL-002', `Unsupported runner platform ${platform}/${architecture}. Supported targets: linux-x64, linux-arm64, macos-x64, macos-arm64.`);
+}
+
+;// CONCATENATED MODULE: ./src/public-output.ts
+
+const MAX_PUBLIC_MESSAGE_CHARACTERS = 4096;
+const MAX_PUBLIC_SAMPLE_BYTES = 64 * 1024;
+const SENSITIVE_NAME = /(?:ACCESS_KEY|API_KEY|AUTH|CREDENTIAL|PASSWORD|PASSWD|PRIVATE_KEY|SECRET|TOKEN)/iu;
+const escapeCharacter = String.fromCodePoint(27);
+const bellCharacter = String.fromCodePoint(7);
+const ANSI_ESCAPE = new RegExp(`${escapeCharacter}(?:\\][^${bellCharacter}]*(?:${bellCharacter}|${escapeCharacter}\\\\)|\\[[0-?]*[ -/]*[@-~])`, 'gu');
+function registeredSecrets(environment, explicit = []) {
+    const values = new Set();
+    for (const value of explicit)
+        addSecret(values, value);
+    for (const [name, value] of Object.entries(environment)) {
+        if (SENSITIVE_NAME.test(name))
+            addSecret(values, value);
+    }
+    return [...values].sort((left, right) => right.length - left.length);
+}
+function publicBufferText(value, secrets, limit = MAX_PUBLIC_MESSAGE_CHARACTERS) {
+    return publicText(value.subarray(0, MAX_PUBLIC_SAMPLE_BYTES).toString('utf8'), secrets, limit);
+}
+function publicErrorMessage(error, secrets = []) {
+    const value = error instanceof SubmitDependenciesError
+        ? error.message
+        : 'ZOLT-UNEXPECTED-001: Unexpected action failure.';
+    return publicText(value, secrets);
+}
+function publicText(value, secrets = [], limit = MAX_PUBLIC_MESSAGE_CHARACTERS) {
+    let safe = value
+        .replace(ANSI_ESCAPE, '')
+        .split('')
+        .map((character) => isControlCharacter(character) ? ' ' : character)
+        .join('')
+        .replace(/\s+/gu, ' ')
+        .trim();
+    safe = redactSecrets(safe, secrets)
+        .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/giu, '$1***:***@')
+        .replace(/([?&](?:access_key|api_key|auth|credential|password|secret|token)=)[^&\s]+/giu, '$1***');
+    safe = redactSecrets(safe, secrets).replace(/::/gu, ': :');
+    if (safe.length <= limit)
+        return safe;
+    return `${safe.slice(0, Math.max(0, limit - 1))}…`;
+}
+function redactSecrets(value, secrets) {
+    let safe = value;
+    for (const secret of secrets) {
+        if (secret !== '')
+            safe = safe.split(secret).join('***');
+    }
+    return safe;
+}
+function addSecret(values, value) {
+    if (value !== undefined && value.length >= 4)
+        values.add(value);
+}
+function isControlCharacter(value) {
+    const codePoint = value.codePointAt(0);
+    return codePoint !== undefined && (codePoint <= 31 || codePoint >= 127 && codePoint <= 159);
 }
 
 ;// CONCATENATED MODULE: ./src/zolt/outputs.ts
