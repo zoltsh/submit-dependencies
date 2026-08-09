@@ -19,6 +19,9 @@ inputs:
     description: Resolve with --locked before submission; may contact configured repositories
     required: false
     default: "false"
+  validation-env:
+    description: Newline-separated environment variable names passed only to locked validation
+    required: false
   state:
     description: "Snapshot operation: submit or clear"
     required: false

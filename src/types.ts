@@ -9,6 +9,7 @@ export interface ActionInputs {
     readonly githubToken: string;
     readonly manifestPath?: string;
     readonly state: SubmissionState;
+    readonly validationEnv: readonly string[];
     readonly validateLock: boolean;
     readonly workspace: WorkspaceMode;
 }

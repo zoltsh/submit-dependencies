@@ -268,7 +268,7 @@ describe('action adapter', () => {
 
     it('fails closed when selected and emitted graph modes disagree', async () => {
         const core = actionCore({ 'github-token': 'super-secret' });
-        const submit = vi.fn(async () => await Promise.resolve({ id: 1, result: 'SUCCESS' }));
+        const submit = vi.fn(async () => await Promise.resolve({ id: 1, result: 'SUCCESS' as const }));
         await runAction({ ...happyDependencies(core), convertGraph: () => manifest('workspace'), submit });
         expect(core.failed[0]).toContain('ZOLT-GRAPH-015');
         expect(submit).not.toHaveBeenCalled();

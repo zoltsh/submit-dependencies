@@ -48,7 +48,7 @@ export async function captureZoltOutputs(
         if (inputs.validateLock) {
             await runner(binary, resolveArguments(selection), {
                 cwd: selection.root,
-                environment: validationEnvironment(environment, inputs.githubToken),
+                environment: validationEnvironment(environment, inputs.githubToken, inputs.validationEnv),
                 label: 'Zolt locked resolution validation',
             });
         }

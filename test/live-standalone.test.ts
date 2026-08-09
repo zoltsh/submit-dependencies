@@ -29,6 +29,7 @@ describe('live pinned Zolt standalone contract', () => {
                     directory: '.',
                     githubToken: 'must-not-reach-zolt',
                     state: 'submit',
+                    validationEnv: [],
                     validateLock: false,
                     workspace: 'false',
                 }, {

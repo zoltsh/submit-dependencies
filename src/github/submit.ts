@@ -10,8 +10,8 @@ const REFERENCE_ENDPOINT = 'GET /repos/{owner}/{repo}/git/ref/{ref}';
 
 export interface SnapshotResponse {
     readonly data: {
-        readonly id: number;
-        readonly result: string;
+        readonly id: unknown;
+        readonly result: unknown;
     };
 }
 
@@ -37,7 +37,7 @@ export interface SnapshotRequestParameters extends DependencySnapshot {
 
 export interface SubmissionResult {
     readonly id: number;
-    readonly result: string;
+    readonly result: 'SUCCESS';
 }
 
 export async function submitSnapshot(
@@ -80,10 +80,11 @@ export async function submitSnapshot(
         if (error instanceof SubmitDependenciesError) throw error;
         throw sanitizedGitHubError(error, 'POST', '/dependency-graph/snapshots');
     }
-    if (!Number.isSafeInteger(response.data.id) || response.data.id < 1) {
-        throw new SubmitDependenciesError('ZOLT-GITHUB-002', 'GitHub returned an invalid snapshot ID.');
+    const snapshotId = number(response.data.id);
+    if (snapshotId === undefined || snapshotId < 1 || response.data.result !== 'SUCCESS') {
+        throw new SubmitDependenciesError('ZOLT-GITHUB-002', 'GitHub returned an invalid snapshot success response.');
     }
-    return { id: response.data.id, result: response.data.result };
+    return { id: snapshotId, result: response.data.result };
 }
 
 function createSnapshotClient(token: string): SnapshotClient {

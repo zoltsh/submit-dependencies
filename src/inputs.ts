@@ -17,6 +17,13 @@ export function readInputs(reader: InputReader, maskSecret: (secret: string) => 
     }
     const workspace = parseWorkspace(reader.getInput('workspace'));
     const validateLock = parseBoolean('validate-lock', reader.getInput('validate-lock'));
+    const validationEnv = parseValidationEnv(reader.getInput('validation-env', { trimWhitespace: false }));
+    if (!validateLock && validationEnv.length !== 0) {
+        throw new SubmitDependenciesError(
+            'ZOLT-INPUT-010',
+            'validation-env is only valid when validate-lock is true.',
+        );
+    }
     const state = parseState(reader.getInput('state'));
     const manifestPathInput = reader.getInput('manifest-path', { trimWhitespace: false });
     const manifestPath = parseZoltManifestPath(manifestPathInput);
@@ -33,12 +40,33 @@ export function readInputs(reader: InputReader, maskSecret: (secret: string) => 
                 'manifest-path must name the repository-relative zolt.lock to clear.',
             );
         }
-        return { directory, githubToken, manifestPath, state, validateLock, workspace };
+        return { directory, githubToken, manifestPath, state, validationEnv, validateLock, workspace };
     }
     if (manifestPathInput !== '') {
         throw new SubmitDependenciesError('ZOLT-INPUT-009', 'manifest-path is only valid when state is clear.');
     }
-    return { directory, githubToken, state, validateLock, workspace };
+    return { directory, githubToken, state, validationEnv, validateLock, workspace };
+}
+
+export function parseValidationEnv(value: string): readonly string[] {
+    if (value.length > 4096) {
+        throw new SubmitDependenciesError('ZOLT-INPUT-010', 'validation-env exceeds 4096 characters.');
+    }
+    const names = value.split(/\r?\n/u).map((name) => name.trim()).filter((name) => name !== '');
+    if (names.length > 32) {
+        throw new SubmitDependenciesError('ZOLT-INPUT-010', 'validation-env accepts at most 32 variable names.');
+    }
+    if (names.some((name) => !/^[A-Za-z_][A-Za-z0-9_]*$/u.test(name))) {
+        throw new SubmitDependenciesError(
+            'ZOLT-INPUT-010',
+            'validation-env must contain one portable environment-variable name per line.',
+        );
+    }
+    const unique = [...new Set(names)].sort();
+    if (unique.length !== names.length) {
+        throw new SubmitDependenciesError('ZOLT-INPUT-010', 'validation-env contains a duplicate variable name.');
+    }
+    return unique;
 }
 
 export function parseState(value: string): SubmissionState {

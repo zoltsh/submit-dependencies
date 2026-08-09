@@ -40081,10 +40081,11 @@ async function submitSnapshot(token, context, snapshot, client = createSnapshotC
             throw error;
         throw sanitizedGitHubError(error, 'POST', '/dependency-graph/snapshots');
     }
-    if (!Number.isSafeInteger(response.data.id) || response.data.id < 1) {
-        throw new SubmitDependenciesError('ZOLT-GITHUB-002', 'GitHub returned an invalid snapshot ID.');
+    const snapshotId = number(response.data.id);
+    if (snapshotId === undefined || snapshotId < 1 || response.data.result !== 'SUCCESS') {
+        throw new SubmitDependenciesError('ZOLT-GITHUB-002', 'GitHub returned an invalid snapshot success response.');
     }
-    return { id: response.data.id, result: response.data.result };
+    return { id: snapshotId, result: response.data.result };
 }
 function createSnapshotClient(token) {
     const octokit = getOctokit(token, {
@@ -40183,6 +40184,10 @@ function readInputs(reader, maskSecret = () => undefined) {
     }
     const workspace = parseWorkspace(reader.getInput('workspace'));
     const validateLock = parseBoolean('validate-lock', reader.getInput('validate-lock'));
+    const validationEnv = parseValidationEnv(reader.getInput('validation-env', { trimWhitespace: false }));
+    if (!validateLock && validationEnv.length !== 0) {
+        throw new SubmitDependenciesError('ZOLT-INPUT-010', 'validation-env is only valid when validate-lock is true.');
+    }
     const state = parseState(reader.getInput('state'));
     const manifestPathInput = reader.getInput('manifest-path', { trimWhitespace: false });
     const manifestPath = parseZoltManifestPath(manifestPathInput);
@@ -40193,12 +40198,29 @@ function readInputs(reader, maskSecret = () => undefined) {
         if (manifestPath === undefined) {
             throw new SubmitDependenciesError('ZOLT-INPUT-009', 'manifest-path must name the repository-relative zolt.lock to clear.');
         }
-        return { directory, githubToken, manifestPath, state, validateLock, workspace };
+        return { directory, githubToken, manifestPath, state, validationEnv, validateLock, workspace };
     }
     if (manifestPathInput !== '') {
         throw new SubmitDependenciesError('ZOLT-INPUT-009', 'manifest-path is only valid when state is clear.');
     }
-    return { directory, githubToken, state, validateLock, workspace };
+    return { directory, githubToken, state, validationEnv, validateLock, workspace };
+}
+function parseValidationEnv(value) {
+    if (value.length > 4096) {
+        throw new SubmitDependenciesError('ZOLT-INPUT-010', 'validation-env exceeds 4096 characters.');
+    }
+    const names = value.split(/\r?\n/u).map((name) => name.trim()).filter((name) => name !== '');
+    if (names.length > 32) {
+        throw new SubmitDependenciesError('ZOLT-INPUT-010', 'validation-env accepts at most 32 variable names.');
+    }
+    if (names.some((name) => !/^[A-Za-z_][A-Za-z0-9_]*$/u.test(name))) {
+        throw new SubmitDependenciesError('ZOLT-INPUT-010', 'validation-env must contain one portable environment-variable name per line.');
+    }
+    const unique = [...new Set(names)].sort();
+    if (unique.length !== names.length) {
+        throw new SubmitDependenciesError('ZOLT-INPUT-010', 'validation-env contains a duplicate variable name.');
+    }
+    return unique;
 }
 function parseState(value) {
     const normalized = value.trim() || 'submit';
@@ -40500,7 +40522,7 @@ function minimalZoltEnvironment(source) {
     const allowed = ['LANG', 'LC_ALL', 'PATH', 'RUNNER_TEMP', 'TMPDIR'];
     return Object.fromEntries(allowed.flatMap((key) => source[key] === undefined ? [] : [[key, source[key]]]));
 }
-function validationEnvironment(source, githubToken) {
+function validationEnvironment(source, githubToken, requestedNames) {
     const denied = new Set([
         'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
         'ACTIONS_ID_TOKEN_REQUEST_URL',
@@ -40508,8 +40530,27 @@ function validationEnvironment(source, githubToken) {
         'GH_TOKEN',
         'GITHUB_TOKEN',
         'INPUT_GITHUB-TOKEN',
+        'INPUT_GITHUB_TOKEN',
     ]);
-    return Object.fromEntries(Object.entries(source).filter(([key, value]) => !denied.has(key) && !/^ACTIONS_.*TOKEN$/u.test(key) && value !== githubToken));
+    const baseline = {
+        ...minimalZoltEnvironment(source),
+        ...source.HOME === undefined ? {} : { HOME: source.HOME },
+    };
+    const result = Object.fromEntries(Object.entries(baseline).filter(([, value]) => value?.includes(githubToken) !== true));
+    for (const name of requestedNames) {
+        if (denied.has(name) || /^ACTIONS_.*(?:TOKEN|URL)$/u.test(name) || /^(?:GH|GITHUB)_.*(?:PAT|TOKEN)$/u.test(name)) {
+            throw new SubmitDependenciesError('ZOLT-INPUT-011', `validation-env cannot pass GitHub credential channel ${name}.`);
+        }
+        const value = source[name];
+        if (value === undefined) {
+            throw new SubmitDependenciesError('ZOLT-INPUT-011', `validation-env variable ${name} is not set.`);
+        }
+        if (value.includes(githubToken)) {
+            throw new SubmitDependenciesError('ZOLT-INPUT-011', `validation-env variable ${name} contains the GitHub token and cannot be passed to Zolt.`);
+        }
+        result[name] = value;
+    }
+    return result;
 }
 
 ;// CONCATENATED MODULE: ./src/install/verify.ts
@@ -40821,7 +40862,7 @@ async function captureZoltOutputs(binary, inputs, repository, dependencies = {})
         if (inputs.validateLock) {
             await runner(binary, resolveArguments(selection), {
                 cwd: selection.root,
-                environment: validationEnvironment(environment, inputs.githubToken),
+                environment: validationEnvironment(environment, inputs.githubToken, inputs.validationEnv),
                 label: 'Zolt locked resolution validation',
             });
         }

@@ -25,7 +25,7 @@ describe('Zolt process adapter', () => {
         expect(failure).not.toContain('secret-value');
     });
 
-    it('keeps normal analysis minimal and strips every GitHub bearer channel from validation', () => {
+    it('keeps normal analysis minimal and passes only explicit validation variables', () => {
         const source = {
             ACTIONS_CACHE_TOKEN: 'cache-bearer',
             ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'oidc-bearer',
@@ -34,9 +34,31 @@ describe('Zolt process adapter', () => {
             HOME: '/home',
             MAVEN_TOKEN: 'maven',
             PATH: '/bin',
+            TMPDIR: 'prefix-secret-suffix',
             SAME: 'secret',
         };
-        expect(minimalZoltEnvironment(source)).toEqual({ PATH: '/bin' });
-        expect(validationEnvironment(source, 'secret')).toEqual({ HOME: '/home', MAVEN_TOKEN: 'maven', PATH: '/bin' });
+        expect(minimalZoltEnvironment(source)).toEqual({ PATH: '/bin', TMPDIR: 'prefix-secret-suffix' });
+        expect(validationEnvironment(source, 'secret', ['MAVEN_TOKEN'])).toEqual({
+            HOME: '/home',
+            MAVEN_TOKEN: 'maven',
+            PATH: '/bin',
+        });
+    });
+
+    it('fails closed for missing, GitHub-owned, or token-containing validation variables', () => {
+        const source = {
+            ACTIONS_ID_TOKEN_REQUEST_URL: 'https://oidc.example/token',
+            AUTH_HEADER: 'Bearer github-secret',
+            GITHUB_TOKEN: 'github-secret',
+            PATH: '/bin',
+        };
+        expect(() => validationEnvironment(source, 'github-secret', ['MISSING'])).toThrow('ZOLT-INPUT-011');
+        expect(() => validationEnvironment(source, 'github-secret', ['GITHUB_TOKEN'])).toThrow('ZOLT-INPUT-011');
+        expect(() => validationEnvironment(
+            source,
+            'github-secret',
+            ['ACTIONS_ID_TOKEN_REQUEST_URL'],
+        )).toThrow('ZOLT-INPUT-011');
+        expect(() => validationEnvironment(source, 'github-secret', ['AUTH_HEADER'])).toThrow('ZOLT-INPUT-011');
     });
 });

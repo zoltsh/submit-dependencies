@@ -57,7 +57,8 @@ identity remains.
 - Commit a corrupted lock and require failure before submission, then restore
   the fixture.
 - Test stale manifests separately with `validate-lock: true`; that check may
-  contact configured repositories.
+  contact configured repositories and receives only variables named by
+  `validation-env`.
 
 Keep the action commit, workflow run links, counts, and PURL result with the
 release record. Delete the canary repository when finished.

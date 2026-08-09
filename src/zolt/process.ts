@@ -52,7 +52,11 @@ export function minimalZoltEnvironment(source: NodeJS.ProcessEnv): NodeJS.Proces
     return Object.fromEntries(allowed.flatMap((key) => source[key] === undefined ? [] : [[key, source[key]]]));
 }
 
-export function validationEnvironment(source: NodeJS.ProcessEnv, githubToken: string): NodeJS.ProcessEnv {
+export function validationEnvironment(
+    source: NodeJS.ProcessEnv,
+    githubToken: string,
+    requestedNames: readonly string[],
+): NodeJS.ProcessEnv {
     const denied = new Set([
         'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
         'ACTIONS_ID_TOKEN_REQUEST_URL',
@@ -60,7 +64,33 @@ export function validationEnvironment(source: NodeJS.ProcessEnv, githubToken: st
         'GH_TOKEN',
         'GITHUB_TOKEN',
         'INPUT_GITHUB-TOKEN',
+        'INPUT_GITHUB_TOKEN',
     ]);
-    return Object.fromEntries(Object.entries(source).filter(([key, value]) =>
-        !denied.has(key) && !/^ACTIONS_.*TOKEN$/u.test(key) && value !== githubToken));
+    const baseline: NodeJS.ProcessEnv = {
+        ...minimalZoltEnvironment(source),
+        ...source.HOME === undefined ? {} : { HOME: source.HOME },
+    };
+    const result = Object.fromEntries(
+        Object.entries(baseline).filter(([, value]) => value?.includes(githubToken) !== true),
+    );
+    for (const name of requestedNames) {
+        if (denied.has(name) || /^ACTIONS_.*(?:TOKEN|URL)$/u.test(name) || /^(?:GH|GITHUB)_.*(?:PAT|TOKEN)$/u.test(name)) {
+            throw new SubmitDependenciesError(
+                'ZOLT-INPUT-011',
+                `validation-env cannot pass GitHub credential channel ${name}.`,
+            );
+        }
+        const value = source[name];
+        if (value === undefined) {
+            throw new SubmitDependenciesError('ZOLT-INPUT-011', `validation-env variable ${name} is not set.`);
+        }
+        if (value.includes(githubToken)) {
+            throw new SubmitDependenciesError(
+                'ZOLT-INPUT-011',
+                `validation-env variable ${name} contains the GitHub token and cannot be passed to Zolt.`,
+            );
+        }
+        result[name] = value;
+    }
+    return result;
 }

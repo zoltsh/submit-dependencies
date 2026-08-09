@@ -84,9 +84,9 @@ Normal analysis is offline from Maven repositories. Network requests download
 Zolt, verify the default-branch tip, and submit the snapshot. The action does
 not build the project or run project code.
 
-Before posting, it verifies that the default branch still points to the run's
-commit. The workflow concurrency group prevents an older run from finishing
-after a newer one.
+Immediately before posting, it rejects a run if the default branch has already
+advanced. The workflow concurrency group cancels most older runs, but GitHub
+does not make the separate branch check and snapshot submission atomic.
 
 ## Inputs
 
@@ -96,8 +96,37 @@ after a newer one.
 | `workspace` | `auto` | `auto`, `true`, or `false` |
 | `github-token` | `github.token` | Token used to submit the snapshot |
 | `validate-lock` | `false` | Run `zolt resolve --locked`; may contact configured repositories |
+| `validation-env` | — | Environment variable names passed to locked validation, one per line |
 | `state` | `submit` | `submit` a lock graph or `clear` its previous snapshot |
 | `manifest-path` | — | Canonical repository-relative `zolt.lock` path; required only with `state: clear` |
+
+### Lock validation
+
+Normal analysis never contacts Maven repositories. With `validate-lock: true`,
+the pinned Zolt binary also runs `resolve --locked`. Validation receives a small
+baseline environment plus only the variables named by `validation-env`:
+
+```yaml
+- uses: zoltsh/submit-dependencies@<full-commit-sha>
+  env:
+    MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
+    MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
+  with:
+    validate-lock: true
+    validation-env: |
+      MAVEN_USERNAME
+      MAVEN_PASSWORD
+```
+
+GitHub credential channels cannot be selected. A named value containing the
+GitHub token is rejected before Zolt runs.
+
+## Limits
+
+The immutable repository view accepts at most 50,000 tracked entries, 512 MiB
+in total, and 256 MiB for one blob. These limits cover the whole repository,
+even when `directory` selects a small project. Remove tracked generated or
+oversized files, or use a smaller repository, if a limit is exceeded.
 
 ## Workspaces
 
@@ -156,8 +185,7 @@ bundles Zolt `0.1.0-zap.20260806.5ba5361d856f` from source commit
 
 ## Development
 
-Use Node 22.18 or newer in the Node 22 line, or Node 24 or newer. GitHub runs
-the committed bundle with Node 24.
+Use Node 24 or newer. GitHub runs the committed bundle with Node 24.
 
 ```sh
 npm ci

@@ -39,7 +39,8 @@ describe('Zolt command orchestration', () => {
         });
         const repository: RepositoryDirectory = { directory: root, relativeDirectory: '.', workspace: root };
         const inputs: ActionInputs = {
-            directory: '.', githubToken: 'github-secret', state: 'submit', validateLock: true, workspace: 'true',
+            directory: '.', githubToken: 'github-secret', state: 'submit', validationEnv: ['MAVEN_SECRET'],
+            validateLock: true, workspace: 'true',
         };
         const result = await captureZoltOutputs('/verified/zolt', inputs, repository, {
             environment: {
@@ -89,7 +90,8 @@ describe('Zolt command orchestration', () => {
     it('preserves the operation failure when cleanup also fails', async () => {
         const root = await temporary();
         const inputs: ActionInputs = {
-            directory: '.', githubToken: 'secret', state: 'submit', validateLock: false, workspace: 'false',
+            directory: '.', githubToken: 'secret', state: 'submit', validationEnv: [],
+            validateLock: false, workspace: 'false',
         };
         await expect(captureZoltOutputs('/verified/zolt', inputs, {
             directory: root, relativeDirectory: '.', workspace: root,

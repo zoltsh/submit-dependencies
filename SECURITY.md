@@ -38,10 +38,14 @@ and GitHub API failures as untrusted.
 - Both graphs must describe the same dependencies before submission. Schema-3
   member roots must agree with exact occurrence directness and attribution.
 - Version, tree, and SBOM commands receive only path, locale, and temporary-file
-  variables. Validation receives repository credentials but no GitHub token.
+  variables. Validation receives a small baseline plus only names selected by
+  `validation-env`; GitHub credential channels and values containing the GitHub
+  token fail closed.
 - All public diagnostics are control-stripped, bounded, and redacted before
   reaching the runner log.
 - The default branch tip is checked immediately before every snapshot POST.
+  GitHub exposes no atomic check-and-submit operation, so the branch can still
+  advance in the small interval between those two API requests.
 - Normal analysis is Maven-offline. `validate-lock: true` is the documented
   exception.
 

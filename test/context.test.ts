@@ -18,7 +18,8 @@ describe('execution context', () => {
         const eventPath = join(root, 'event.json');
         await writeFile(eventPath, JSON.stringify({ repository: { default_branch: 'main', full_name: 'zoltsh/demo' } }));
         await expect(resolveExecutionContext({
-            directory: '.', githubToken: 'secret', state: 'submit', validateLock: false, workspace: 'auto',
+            directory: '.', githubToken: 'secret', state: 'submit', validationEnv: [],
+            validateLock: false, workspace: 'auto',
         }, {
             GITHUB_EVENT_NAME: 'push',
             GITHUB_EVENT_PATH: eventPath,
@@ -41,6 +42,7 @@ describe('execution context', () => {
             githubToken: 'secret',
             manifestPath: 'services/deleted/zolt.lock',
             state: 'clear',
+            validationEnv: [],
             validateLock: false,
             workspace: 'auto',
         }, {

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseBoolean, parseState, parseWorkspace, readInputs, type InputReader } from '../src/inputs';
+import {
+    parseBoolean,
+    parseState,
+    parseValidationEnv,
+    parseWorkspace,
+    readInputs,
+    type InputReader,
+} from '../src/inputs';
 
 function reader(values: Record<string, string>): InputReader {
     return { getInput: (name) => values[name] ?? '' };
@@ -12,9 +19,29 @@ describe('inputs', () => {
             directory: '.',
             githubToken: 'secret',
             state: 'submit',
+            validationEnv: [],
             validateLock: false,
             workspace: 'auto',
         });
+    });
+
+    it('accepts a bounded explicit validation environment only with lock validation', () => {
+        expect(parseValidationEnv('MAVEN_USERNAME\n\nMAVEN_PASSWORD\n')).toEqual([
+            'MAVEN_PASSWORD',
+            'MAVEN_USERNAME',
+        ]);
+        expect(readInputs(reader({
+            'github-token': 'secret',
+            'validate-lock': 'true',
+            'validation-env': 'MAVEN_USERNAME\nMAVEN_PASSWORD',
+        }))).toMatchObject({
+            validationEnv: ['MAVEN_PASSWORD', 'MAVEN_USERNAME'],
+            validateLock: true,
+        });
+        expect(() => readInputs(reader({
+            'github-token': 'secret',
+            'validation-env': 'MAVEN_USERNAME',
+        }))).toThrow('ZOLT-INPUT-010');
     });
 
     it('accepts every explicit mode', () => {
@@ -31,6 +58,10 @@ describe('inputs', () => {
         expect(() => parseWorkspace('yes')).toThrow('ZOLT-INPUT-003');
         expect(() => parseBoolean('validate-lock', '1')).toThrow('ZOLT-INPUT-005');
         expect(() => parseState('delete')).toThrow('ZOLT-INPUT-008');
+        expect(() => parseValidationEnv('BAD-NAME')).toThrow('ZOLT-INPUT-010');
+        expect(() => parseValidationEnv('DUPLICATE\nDUPLICATE')).toThrow('ZOLT-INPUT-010');
+        expect(() => parseValidationEnv('A\n'.repeat(33))).toThrow('ZOLT-INPUT-010');
+        expect(() => parseValidationEnv('A'.repeat(4097))).toThrow('ZOLT-INPUT-010');
         expect(() => readInputs(reader({ 'github-token': ' ' }))).toThrow('ZOLT-INPUT-002');
         expect(() => readInputs(reader({ directory: 'bad\0path', 'github-token': 'secret' }))).toThrow('ZOLT-INPUT-001');
     });

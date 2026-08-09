@@ -21,6 +21,7 @@ describe('live source-built Zolt workspace contract', () => {
                 directory: '.',
                 githubToken: 'must-not-reach-zolt',
                 state: 'submit',
+                validationEnv: [],
                 validateLock: false,
                 workspace: 'true',
             }, {

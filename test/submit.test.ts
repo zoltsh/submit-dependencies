@@ -53,13 +53,22 @@ describe('GitHub snapshot submission', () => {
     });
 
     it('rejects invalid success responses with a stable error', async () => {
-        const client: SnapshotClient = {
-            createSnapshot: async () => await Promise.resolve({ data: { id: 0, result: 'SUCCESS' } }),
-            getReference: async () => await Promise.resolve({
-                data: { object: { sha: context.sha, type: 'commit' } },
-            }),
-        };
-        await expect(submitSnapshot('token', context, snapshot, client)).rejects.toThrow('invalid snapshot ID');
+        for (const data of [
+            { id: 0, result: 'SUCCESS' },
+            { id: 1, result: '' },
+            { id: 1, result: 'FAILED' },
+            { id: 1, result: 1 },
+        ]) {
+            const client: SnapshotClient = {
+                createSnapshot: async () => await Promise.resolve({ data }),
+                getReference: async () => await Promise.resolve({
+                    data: { object: { sha: context.sha, type: 'commit' } },
+                }),
+            };
+            await expect(submitSnapshot('token', context, snapshot, client)).rejects.toThrow(
+                'invalid snapshot success response',
+            );
+        }
     });
 
     it.each([
