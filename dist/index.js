@@ -34674,6 +34674,70 @@ const MAX_REPOSITORY_VIEW_BYTES = 512 * 1024 * 1024;
 const MAX_REPOSITORY_VIEW_ENTRIES = 50_000;
 const RELEASE_ASSET_ORIGIN = 'https://github.com/zoltsh/releases/releases/download';
 
+;// CONCATENATED MODULE: external "node:fs"
+const external_node_fs_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:fs");
+;// CONCATENATED MODULE: ./src/files.ts
+
+
+class BoundedFileError extends Error {
+    reason;
+    constructor(reason, options) {
+        super(`Bounded file ${reason}.`, options);
+        this.name = 'BoundedFileError';
+        this.reason = reason;
+    }
+}
+async function readBoundedRegularFile(path, maxBytes) {
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 0)
+        throw new RangeError('maxBytes must be a non-negative safe integer.');
+    const file = await openWithoutFollowing(path);
+    try {
+        const before = await file.stat({ bigint: true });
+        if (!before.isFile())
+            throw new BoundedFileError('not-file');
+        if (before.size > BigInt(maxBytes))
+            throw new BoundedFileError('too-large');
+        const size = Number(before.size);
+        const bytes = Buffer.alloc(size);
+        let offset = 0;
+        while (offset < size) {
+            const result = await file.read(bytes, offset, size - offset, offset);
+            if (result.bytesRead === 0)
+                throw new BoundedFileError('changed');
+            offset += result.bytesRead;
+        }
+        const probe = await file.read(Buffer.alloc(1), 0, 1, size);
+        const after = await file.stat({ bigint: true });
+        if (probe.bytesRead !== 0 || !sameFileState(before, after))
+            throw new BoundedFileError('changed');
+        return bytes;
+    }
+    finally {
+        await file.close();
+    }
+}
+async function openWithoutFollowing(path) {
+    try {
+        return await (0,promises_namespaceObject.open)(path, external_node_fs_namespaceObject.constants.O_RDONLY | external_node_fs_namespaceObject.constants.O_NOFOLLOW);
+    }
+    catch (error) {
+        if (error.code === 'ELOOP') {
+            throw new BoundedFileError('not-file', { cause: error });
+        }
+        throw error;
+    }
+}
+function sameFileState(before, after) {
+    return after.isFile()
+        && before.dev === after.dev
+        && before.ino === after.ino
+        && before.mode === after.mode
+        && before.nlink === after.nlink
+        && before.size === after.size
+        && before.mtimeNs === after.mtimeNs
+        && before.ctimeNs === after.ctimeNs;
+}
+
 ;// CONCATENATED MODULE: ./src/environment/events.ts
 
 
@@ -34704,10 +34768,7 @@ function unsupportedEvent(eventName) {
 }
 async function readEvent(path) {
     try {
-        const info = await (0,promises_namespaceObject.stat)(path);
-        if (!info.isFile() || info.size > MAX_EVENT_BYTES)
-            throw new Error('event payload is not a bounded regular file');
-        const value = JSON.parse(await (0,promises_namespaceObject.readFile)(path, 'utf8'));
+        const value = JSON.parse((await readBoundedRegularFile(path, MAX_EVENT_BYTES)).toString('utf8'));
         return events_object(value, 'event payload');
     }
     catch (error) {
@@ -34749,8 +34810,6 @@ async function resolveExecutionContext(inputs, environment = process.env) {
 var external_node_crypto_ = __nccwpck_require__(7598);
 ;// CONCATENATED MODULE: external "node:child_process"
 const external_node_child_process_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:child_process");
-;// CONCATENATED MODULE: external "node:fs"
-const external_node_fs_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:fs");
 ;// CONCATENATED MODULE: external "node:os"
 const external_node_os_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:os");
 ;// CONCATENATED MODULE: external "node:stream/promises"
@@ -40168,7 +40227,7 @@ function renderClearSummary(input) {
     ].join('\n');
 }
 function escapeCode(value) {
-    return value.replace(/`/gu, '\\`').replace(/\|/gu, '\\|').replace(/[\r\n]/gu, ' ');
+    return value.replace(/\\/gu, '\\\\').replace(/`/gu, '\\`').replace(/\|/gu, '\\|').replace(/[\r\n]/gu, ' ');
 }
 
 ;// CONCATENATED MODULE: ./src/inputs.ts
@@ -40731,13 +40790,14 @@ function parseMachineJson(bytes, label) {
 }
 async function readMachineJson(path, label) {
     try {
-        const info = await (0,promises_namespaceObject.lstat)(path);
-        if (!info.isFile() || info.isSymbolicLink() || info.size > MAX_MACHINE_DOCUMENT_BYTES) {
-            throw new SubmitDependenciesError('ZOLT-OUTPUT-001', `${label} is not a bounded regular file.`);
-        }
-        return parseMachineJson(await (0,promises_namespaceObject.readFile)(path), label);
+        return parseMachineJson(await readBoundedRegularFile(path, MAX_MACHINE_DOCUMENT_BYTES), label);
     }
     catch (error) {
+        if (error instanceof BoundedFileError) {
+            throw new SubmitDependenciesError('ZOLT-OUTPUT-001', `${label} is not a stable bounded regular file.`, {
+                cause: error,
+            });
+        }
         if (error instanceof SubmitDependenciesError)
             throw error;
         throw new SubmitDependenciesError('ZOLT-OUTPUT-004', `Could not read ${label} from ${path}.`, { cause: error });
@@ -40745,6 +40805,7 @@ async function readMachineJson(path, label) {
 }
 
 ;// CONCATENATED MODULE: ./src/zolt/workspace.ts
+
 
 
 
@@ -40819,11 +40880,15 @@ async function regularFileInside(path, workspaceRoot, required) {
     }
 }
 async function containsWorkspaceTable(path) {
-    const info = await (0,promises_namespaceObject.lstat)(path);
-    if (info.size > MAX_CONFIG_BYTES) {
-        throw new SubmitDependenciesError('ZOLT-WORKSPACE-006', `Zolt config ${path} exceeds ${MAX_CONFIG_BYTES.toString()} bytes.`);
+    try {
+        return WORKSPACE_TABLE.test((await readBoundedRegularFile(path, MAX_CONFIG_BYTES)).toString('utf8'));
     }
-    return WORKSPACE_TABLE.test(await (0,promises_namespaceObject.readFile)(path, 'utf8'));
+    catch (error) {
+        if (error instanceof BoundedFileError && error.reason === 'too-large') {
+            throw new SubmitDependenciesError('ZOLT-WORKSPACE-006', `Zolt config ${path} exceeds ${MAX_CONFIG_BYTES.toString()} bytes.`, { cause: error });
+        }
+        throw new SubmitDependenciesError('ZOLT-WORKSPACE-005', `Could not read Zolt config ${path}.`, { cause: error });
+    }
 }
 function repositoryRelative(workspaceRoot, path) {
     const value = (0,external_node_path_namespaceObject.relative)(workspaceRoot, path);

@@ -1,8 +1,9 @@
-import { lstat, readFile, realpath } from 'node:fs/promises';
+import { lstat, realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { SubmitDependenciesError } from '../errors';
 import type { RepositoryDirectory } from '../environment/directory';
+import { BoundedFileError, readBoundedRegularFile } from '../files';
 import type { WorkspaceMode } from '../types';
 
 const MAX_CONFIG_BYTES = 4 * 1024 * 1024;
@@ -87,11 +88,18 @@ async function regularFileInside(path: string, workspaceRoot: string, required: 
 }
 
 async function containsWorkspaceTable(path: string): Promise<boolean> {
-    const info = await lstat(path);
-    if (info.size > MAX_CONFIG_BYTES) {
-        throw new SubmitDependenciesError('ZOLT-WORKSPACE-006', `Zolt config ${path} exceeds ${MAX_CONFIG_BYTES.toString()} bytes.`);
+    try {
+        return WORKSPACE_TABLE.test((await readBoundedRegularFile(path, MAX_CONFIG_BYTES)).toString('utf8'));
+    } catch (error) {
+        if (error instanceof BoundedFileError && error.reason === 'too-large') {
+            throw new SubmitDependenciesError(
+                'ZOLT-WORKSPACE-006',
+                `Zolt config ${path} exceeds ${MAX_CONFIG_BYTES.toString()} bytes.`,
+                { cause: error },
+            );
+        }
+        throw new SubmitDependenciesError('ZOLT-WORKSPACE-005', `Could not read Zolt config ${path}.`, { cause: error });
     }
-    return WORKSPACE_TABLE.test(await readFile(path, 'utf8'));
 }
 
 function repositoryRelative(workspaceRoot: string, path: string): string {

@@ -1,7 +1,7 @@
-import { lstat, readFile } from 'node:fs/promises';
 import { TextDecoder } from 'node:util';
 
 import { SubmitDependenciesError } from '../errors';
+import { BoundedFileError, readBoundedRegularFile } from '../files';
 import { MAX_MACHINE_DOCUMENT_BYTES } from './process';
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -25,12 +25,13 @@ export function parseMachineJson(bytes: Uint8Array, label: string): unknown {
 
 export async function readMachineJson(path: string, label: string): Promise<unknown> {
     try {
-        const info = await lstat(path);
-        if (!info.isFile() || info.isSymbolicLink() || info.size > MAX_MACHINE_DOCUMENT_BYTES) {
-            throw new SubmitDependenciesError('ZOLT-OUTPUT-001', `${label} is not a bounded regular file.`);
-        }
-        return parseMachineJson(await readFile(path), label);
+        return parseMachineJson(await readBoundedRegularFile(path, MAX_MACHINE_DOCUMENT_BYTES), label);
     } catch (error) {
+        if (error instanceof BoundedFileError) {
+            throw new SubmitDependenciesError('ZOLT-OUTPUT-001', `${label} is not a stable bounded regular file.`, {
+                cause: error,
+            });
+        }
         if (error instanceof SubmitDependenciesError) throw error;
         throw new SubmitDependenciesError('ZOLT-OUTPUT-004', `Could not read ${label} from ${path}.`, { cause: error });
     }

@@ -1,7 +1,6 @@
-import { readFile, stat } from 'node:fs/promises';
-
 import { MAX_EVENT_BYTES } from '../constants';
 import { SubmitDependenciesError } from '../errors';
+import { readBoundedRegularFile } from '../files';
 
 interface EventEnvironment {
     readonly eventName: string | undefined;
@@ -55,9 +54,7 @@ function unsupportedEvent(eventName: string): SubmitDependenciesError {
 
 async function readEvent(path: string): Promise<Record<string, unknown>> {
     try {
-        const info = await stat(path);
-        if (!info.isFile() || info.size > MAX_EVENT_BYTES) throw new Error('event payload is not a bounded regular file');
-        const value: unknown = JSON.parse(await readFile(path, 'utf8'));
+        const value: unknown = JSON.parse((await readBoundedRegularFile(path, MAX_EVENT_BYTES)).toString('utf8'));
         return object(value, 'event payload');
     } catch (error) {
         if (error instanceof SubmitDependenciesError) throw error;
