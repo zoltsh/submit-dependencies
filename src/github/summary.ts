@@ -23,13 +23,13 @@ export function renderSummary(input: SummaryInput): string {
         '| Field | Value |',
         '| --- | ---: |',
         `| Snapshot ID | ${input.snapshotId.toString()} |`,
-        `| Manifest | \`${escapeCode(input.manifest.sourceLocation)}\` |`,
+        `| Manifest | ${inlineCode(input.manifest.sourceLocation)} |`,
         `| Mode | ${input.manifest.mode} |`,
         `| External dependencies | ${statistics.externalDependencies.toString()} |`,
         `| Direct / indirect | ${statistics.direct.toString()} / ${statistics.indirect.toString()} |`,
         `| Runtime / development | ${statistics.runtime.toString()} / ${statistics.development.toString()} |`,
         `| Dependency edges | ${statistics.dependencyEdges.toString()} |`,
-        `| Zolt | \`${escapeCode(input.zoltVersion)}\` |`,
+        `| Zolt | ${inlineCode(input.zoltVersion)} |`,
         '',
         validation,
         '',
@@ -43,7 +43,7 @@ export function renderClearSummary(input: ClearSummaryInput): string {
         '| Field | Value |',
         '| --- | ---: |',
         `| Snapshot ID | ${input.snapshotId.toString()} |`,
-        `| Manifest | \`${escapeCode(input.manifestPath)}\` |`,
+        `| Manifest | ${inlineCode(input.manifestPath)} |`,
         '| External dependencies | 0 |',
         '',
         'Submitted an empty snapshot with the manifest\'s stable identity. Zolt was not installed or run.',
@@ -51,6 +51,10 @@ export function renderClearSummary(input: ClearSummaryInput): string {
     ].join('\n');
 }
 
-function escapeCode(value: string): string {
-    return value.replace(/\\/gu, '\\\\').replace(/`/gu, '\\`').replace(/\|/gu, '\\|').replace(/[\r\n]/gu, ' ');
+function inlineCode(value: string): string {
+    const escaped = value.replace(/\\/gu, '\\\\').replace(/\|/gu, '\\|').replace(/[\r\n]/gu, ' ');
+    const longestRun = Math.max(0, ...[...escaped.matchAll(/`+/gu)].map((match) => match[0].length));
+    const fence = '`'.repeat(longestRun + 1);
+    const padding = escaped.startsWith('`') || escaped.endsWith('`') ? ' ' : '';
+    return `${fence}${padding}${escaped}${padding}${fence}`;
 }

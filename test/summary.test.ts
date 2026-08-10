@@ -35,5 +35,11 @@ describe('action summary', () => {
         expect(renderClearSummary({ manifestPath: 'old\\|name/zolt.lock', snapshotId: 100 })).toContain(
             '`old\\\\\\|name/zolt.lock`',
         );
+        expect(renderClearSummary({ manifestPath: 'old`name|/zolt.lock', snapshotId: 100 })).toContain(
+            '``old`name\\|/zolt.lock``',
+        );
+        expect(renderClearSummary({ manifestPath: '`old|name/zolt.lock', snapshotId: 100 })).toContain(
+            '`` `old\\|name/zolt.lock ``',
+        );
     });
 });
