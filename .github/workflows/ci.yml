@@ -107,6 +107,14 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      - name: Verify platform filesystem boundaries
+        run: >
+          npx vitest run
+          test/files.test.ts
+          test/directory.test.ts
+          test/workspace.test.ts
+          test/repository-state.test.ts
+
       - name: Verify published binary contracts
         env:
           EXPECTED_ZOLT_TARGET: ${{ matrix.target }}
@@ -131,11 +139,20 @@ jobs:
         continue-on-error: true
         uses: ./
 
-      - name: Require closed failure
+      - name: Reject clear on Windows before repository analysis
+        id: clear
+        continue-on-error: true
+        uses: ./
+        with:
+          manifest-path: removed/zolt.lock
+          state: clear
+
+      - name: Require closed failures
         shell: pwsh
         env:
+          CLEAR_OUTCOME: ${{ steps.clear.outcome }}
           SUBMIT_OUTCOME: ${{ steps.submit.outcome }}
         run: |
-          if ($env:SUBMIT_OUTCOME -ne "failure") {
+          if ($env:SUBMIT_OUTCOME -ne "failure" -or $env:CLEAR_OUTCOME -ne "failure") {
             throw "The action unexpectedly accepted a Windows runner."
           }

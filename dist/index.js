@@ -34687,10 +34687,10 @@ class BoundedFileError extends Error {
         this.reason = reason;
     }
 }
-async function readBoundedRegularFile(path, maxBytes) {
+async function readBoundedRegularFile(path, maxBytes, opener = openWithoutFollowing) {
     if (!Number.isSafeInteger(maxBytes) || maxBytes < 0)
         throw new RangeError('maxBytes must be a non-negative safe integer.');
-    const file = await openWithoutFollowing(path);
+    const file = await opener(path);
     try {
         const before = await file.stat({ bigint: true });
         if (!before.isFile())
@@ -40112,18 +40112,18 @@ const SNAPSHOT_ENDPOINT = 'POST /repos/{owner}/{repo}/dependency-graph/snapshots
 const REFERENCE_ENDPOINT = 'GET /repos/{owner}/{repo}/git/ref/{ref}';
 async function submitSnapshot(token, context, snapshot, client = createSnapshotClient(token)) {
     const branchRef = context.ref.slice('refs/'.length);
-    let reference;
+    let referenceResponse;
     try {
-        reference = await client.getReference(context.owner, context.repository, branchRef);
+        referenceResponse = await client.getReference(context.owner, context.repository, branchRef);
     }
     catch (error) {
         throw sanitizedGitHubError(error, 'GET', '/git/ref');
     }
-    if (reference.data.object.type !== 'commit'
-        || !/^[a-fA-F0-9]{40}$/u.test(reference.data.object.sha)) {
+    const reference = decodeReferenceResponse(referenceResponse);
+    if (reference === undefined) {
         throw new SubmitDependenciesError('ZOLT-GITHUB-003', 'GitHub returned an invalid default-branch reference. No dependency snapshot was submitted.');
     }
-    if (reference.data.object.sha.toLowerCase() !== context.sha) {
+    if (reference.sha.toLowerCase() !== context.sha) {
         throw new SubmitDependenciesError('ZOLT-GITHUB-003', 'The default branch advanced after this run started. Rerun the workflow; no stale dependency snapshot was submitted.');
     }
     let response;
@@ -40140,11 +40140,11 @@ async function submitSnapshot(token, context, snapshot, client = createSnapshotC
             throw error;
         throw sanitizedGitHubError(error, 'POST', '/dependency-graph/snapshots');
     }
-    const snapshotId = number(response.data.id);
-    if (snapshotId === undefined || snapshotId < 1 || response.data.result !== 'SUCCESS') {
+    const result = decodeSnapshotResponse(response);
+    if (result === undefined) {
         throw new SubmitDependenciesError('ZOLT-GITHUB-002', 'GitHub returned an invalid snapshot success response.');
     }
-    return { id: snapshotId, result: response.data.result };
+    return result;
 }
 function createSnapshotClient(token) {
     const octokit = getOctokit(token, {
@@ -40179,6 +40179,27 @@ function sanitizedGitHubError(error, expectedMethod, endpoint) {
 }
 function number(value) {
     return typeof value === 'number' && Number.isSafeInteger(value) ? value : undefined;
+}
+function decodeReferenceResponse(value) {
+    const data = field(value, 'data');
+    const object = field(data, 'object');
+    const sha = field(object, 'sha');
+    const type = field(object, 'type');
+    return type === 'commit' && typeof sha === 'string' && /^[a-fA-F0-9]{40}$/u.test(sha)
+        ? { sha }
+        : undefined;
+}
+function decodeSnapshotResponse(value) {
+    const data = field(value, 'data');
+    const id = number(field(data, 'id'));
+    return id !== undefined && id >= 1 && field(data, 'result') === 'SUCCESS'
+        ? { id, result: 'SUCCESS' }
+        : undefined;
+}
+function field(value, name) {
+    return typeof value === 'object' && value !== null
+        ? value[name]
+        : undefined;
 }
 function safeHeader(headers, name) {
     const value = headers?.[name];
@@ -40248,10 +40269,13 @@ function readInputs(reader, maskSecret = () => undefined) {
     const workspace = parseWorkspace(reader.getInput('workspace'));
     const validateLock = parseBoolean('validate-lock', reader.getInput('validate-lock'));
     const validationEnv = parseValidationEnv(reader.getInput('validation-env', { trimWhitespace: false }));
+    const state = parseState(reader.getInput('state'));
+    if (state === 'clear' && (validateLock || validationEnv.length !== 0)) {
+        throw new SubmitDependenciesError('ZOLT-INPUT-012', 'validate-lock and validation-env are only valid when state is submit.');
+    }
     if (!validateLock && validationEnv.length !== 0) {
         throw new SubmitDependenciesError('ZOLT-INPUT-010', 'validation-env is only valid when validate-lock is true.');
     }
-    const state = parseState(reader.getInput('state'));
     const manifestPathInput = reader.getInput('manifest-path', { trimWhitespace: false });
     const manifestPath = parseZoltManifestPath(manifestPathInput);
     if (githubToken.trim() === '') {
@@ -40615,6 +40639,15 @@ function validationEnvironment(source, githubToken, requestedNames) {
     }
     return result;
 }
+function validationEnvironmentValues(source, requestedNames) {
+    const values = [];
+    for (const name of requestedNames) {
+        const value = source[name];
+        if (value !== undefined)
+            values.push(value);
+    }
+    return values;
+}
 
 ;// CONCATENATED MODULE: ./src/install/verify.ts
 
@@ -40917,7 +40950,10 @@ function contained(root, candidate) {
 
 async function captureZoltOutputs(binary, inputs, repository, dependencies = {}) {
     const environment = dependencies.environment ?? process.env;
-    const secrets = registeredSecrets(environment, [inputs.githubToken]);
+    const secrets = registeredSecrets(environment, [
+        inputs.githubToken,
+        ...validationEnvironmentValues(environment, inputs.validationEnv),
+    ]);
     const selection = dependencies.selection
         ?? await (dependencies.select ?? selectZoltProject)(repository, inputs.workspace);
     const temporaryBase = dependencies.temporaryRoot ?? environment.RUNNER_TEMP ?? (0,external_node_os_namespaceObject.tmpdir)();
@@ -41042,6 +41078,7 @@ function sbomArguments(selection, output, cacheRoot) {
 
 
 
+
 async function runAction(dependencies = {}) {
     const actionCore = dependencies.core ?? core_namespaceObject;
     const environment = dependencies.environment ?? process.env;
@@ -41054,15 +41091,20 @@ async function runAction(dependencies = {}) {
             actionCore.setSecret(secret);
             maskedSecrets.add(secret);
         });
-        secrets = registeredSecrets(environment, [inputs.githubToken]);
+        const validationValues = validationEnvironmentValues(environment, inputs.validationEnv);
+        secrets = registeredSecrets(environment, [inputs.githubToken, ...validationValues]);
+        for (const value of validationValues) {
+            if (value !== '' && !maskedSecrets.has(value)) {
+                actionCore.setSecret(value);
+                maskedSecrets.add(value);
+            }
+        }
         for (const secret of secrets) {
             if (!maskedSecrets.has(secret))
                 actionCore.setSecret(secret);
         }
         const submissionContext = (dependencies.resolveSubmissionContext ?? readGitHubSubmissionContext)(environment);
-        const target = inputs.state === 'submit'
-            ? resolveTarget(dependencies.platform ?? process.platform, dependencies.architecture ?? process.arch)
-            : undefined;
+        const target = resolveTarget(dependencies.platform ?? process.platform, dependencies.architecture ?? process.arch);
         repositoryView = await (dependencies.prepareRepository ?? createRepositoryView)({
             directory: inputs.state === 'clear' ? '.' : inputs.directory,
             expectedSha: submissionContext.sha,
@@ -41096,8 +41138,6 @@ async function runAction(dependencies = {}) {
             actionCore.info(`Cleared dependency snapshot ${submission.id.toString()} for ${publicText(manifestPath, secrets)}.`);
             return;
         }
-        if (target === undefined)
-            throw new SubmitDependenciesError('ZOLT-PLATFORM-001', 'No release target was selected.');
         const selection = await (dependencies.selectProject ?? selectZoltProject)(context.repository, inputs.workspace);
         await repositoryView.verifyManifest({ manifestPath: selection.manifestPath, state: inputs.state });
         actionCore.info(`Validated ${publicText(context.repository.relativeDirectory, secrets)} on ${publicText(context.event.defaultBranch, secrets)}; installing pinned Zolt for ${target}.`);

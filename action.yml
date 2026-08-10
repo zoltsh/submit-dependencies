@@ -16,11 +16,11 @@ inputs:
     required: false
     default: ${{ github.token }}
   validate-lock:
-    description: Resolve with --locked before submission; may contact configured repositories
+    description: Resolve with --locked before submission; valid only when state is submit
     required: false
     default: "false"
   validation-env:
-    description: Newline-separated environment variable names passed only to locked validation
+    description: Newline-separated environment variable names passed only to submit-state locked validation
     required: false
   state:
     description: "Snapshot operation: submit or clear"

@@ -6,7 +6,13 @@ import { SubmitDependenciesError } from '../errors';
 import { publicBufferText, publicErrorMessage, registeredSecrets } from '../public-output';
 import type { ActionInputs } from '../types';
 import type { RepositoryDirectory } from '../environment/directory';
-import { minimalZoltEnvironment, runZolt, type ZoltRunner, validationEnvironment } from './process';
+import {
+    minimalZoltEnvironment,
+    runZolt,
+    type ZoltRunner,
+    validationEnvironment,
+    validationEnvironmentValues,
+} from './process';
 import { parseMachineJson, readMachineJson } from './outputs';
 import { selectZoltProject, type ZoltProjectSelection } from './workspace';
 
@@ -34,7 +40,10 @@ export async function captureZoltOutputs(
     dependencies: AnalysisDependencies = {},
 ): Promise<ZoltMachineOutputs> {
     const environment = dependencies.environment ?? process.env;
-    const secrets = registeredSecrets(environment, [inputs.githubToken]);
+    const secrets = registeredSecrets(environment, [
+        inputs.githubToken,
+        ...validationEnvironmentValues(environment, inputs.validationEnv),
+    ]);
     const selection = dependencies.selection
         ?? await (dependencies.select ?? selectZoltProject)(repository, inputs.workspace);
     const temporaryBase = dependencies.temporaryRoot ?? environment.RUNNER_TEMP ?? tmpdir();

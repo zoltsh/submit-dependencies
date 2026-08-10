@@ -53,14 +53,18 @@ describe('GitHub snapshot submission', () => {
     });
 
     it('rejects invalid success responses with a stable error', async () => {
-        for (const data of [
-            { id: 0, result: 'SUCCESS' },
-            { id: 1, result: '' },
-            { id: 1, result: 'FAILED' },
-            { id: 1, result: 1 },
+        for (const response of [
+            null,
+            {},
+            { data: null },
+            { data: {} },
+            { data: { id: 0, result: 'SUCCESS' } },
+            { data: { id: 1, result: '' } },
+            { data: { id: 1, result: 'FAILED' } },
+            { data: { id: 1, result: 1 } },
         ]) {
             const client: SnapshotClient = {
-                createSnapshot: async () => await Promise.resolve({ data }),
+                createSnapshot: async () => await Promise.resolve(response),
                 getReference: async () => await Promise.resolve({
                     data: { object: { sha: context.sha, type: 'commit' } },
                 }),
@@ -132,15 +136,20 @@ describe('GitHub snapshot submission', () => {
     });
 
     it('rejects an invalid or advanced default-branch tip without posting', async () => {
-        for (const object of [
-            { sha: 'not-a-sha', type: 'commit' },
-            { sha: 'b'.repeat(40), type: 'commit' },
-            { sha: context.sha, type: 'tag' },
+        for (const response of [
+            null,
+            {},
+            { data: null },
+            { data: {} },
+            { data: { object: null } },
+            { data: { object: { sha: 'not-a-sha', type: 'commit' } } },
+            { data: { object: { sha: 'b'.repeat(40), type: 'commit' } } },
+            { data: { object: { sha: context.sha, type: 'tag' } } },
         ]) {
             const createSnapshot = vi.fn(async () => await Promise.resolve({ data: { id: 1, result: 'SUCCESS' } }));
             await expect(submitSnapshot('token', context, snapshot, {
                 createSnapshot,
-                getReference: async () => await Promise.resolve({ data: { object } }),
+                getReference: async () => await Promise.resolve(response),
             })).rejects.toThrow('ZOLT-GITHUB-003');
             expect(createSnapshot).not.toHaveBeenCalled();
         }

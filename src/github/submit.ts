@@ -8,25 +8,9 @@ const API_VERSION = '2026-03-10';
 const SNAPSHOT_ENDPOINT = 'POST /repos/{owner}/{repo}/dependency-graph/snapshots';
 const REFERENCE_ENDPOINT = 'GET /repos/{owner}/{repo}/git/ref/{ref}';
 
-export interface SnapshotResponse {
-    readonly data: {
-        readonly id: unknown;
-        readonly result: unknown;
-    };
-}
-
-export interface ReferenceResponse {
-    readonly data: {
-        readonly object: {
-            readonly sha: string;
-            readonly type: string;
-        };
-    };
-}
-
 export interface SnapshotClient {
-    createSnapshot(parameters: SnapshotRequestParameters): Promise<SnapshotResponse>;
-    getReference(owner: string, repository: string, ref: string): Promise<ReferenceResponse>;
+    createSnapshot(parameters: SnapshotRequestParameters): Promise<unknown>;
+    getReference(owner: string, repository: string, ref: string): Promise<unknown>;
 }
 
 export interface SnapshotRequestParameters extends DependencySnapshot {
@@ -47,28 +31,26 @@ export async function submitSnapshot(
     client: SnapshotClient = createSnapshotClient(token),
 ): Promise<SubmissionResult> {
     const branchRef = context.ref.slice('refs/'.length);
-    let reference: ReferenceResponse;
+    let referenceResponse: unknown;
     try {
-        reference = await client.getReference(context.owner, context.repository, branchRef);
+        referenceResponse = await client.getReference(context.owner, context.repository, branchRef);
     } catch (error) {
         throw sanitizedGitHubError(error, 'GET', '/git/ref');
     }
-    if (
-        reference.data.object.type !== 'commit'
-        || !/^[a-fA-F0-9]{40}$/u.test(reference.data.object.sha)
-    ) {
+    const reference = decodeReferenceResponse(referenceResponse);
+    if (reference === undefined) {
         throw new SubmitDependenciesError(
             'ZOLT-GITHUB-003',
             'GitHub returned an invalid default-branch reference. No dependency snapshot was submitted.',
         );
     }
-    if (reference.data.object.sha.toLowerCase() !== context.sha) {
+    if (reference.sha.toLowerCase() !== context.sha) {
         throw new SubmitDependenciesError(
             'ZOLT-GITHUB-003',
             'The default branch advanced after this run started. Rerun the workflow; no stale dependency snapshot was submitted.',
         );
     }
-    let response: SnapshotResponse;
+    let response: unknown;
     try {
         const parameters: SnapshotRequestParameters = {
             ...snapshot,
@@ -80,11 +62,11 @@ export async function submitSnapshot(
         if (error instanceof SubmitDependenciesError) throw error;
         throw sanitizedGitHubError(error, 'POST', '/dependency-graph/snapshots');
     }
-    const snapshotId = number(response.data.id);
-    if (snapshotId === undefined || snapshotId < 1 || response.data.result !== 'SUCCESS') {
+    const result = decodeSnapshotResponse(response);
+    if (result === undefined) {
         throw new SubmitDependenciesError('ZOLT-GITHUB-002', 'GitHub returned an invalid snapshot success response.');
     }
-    return { id: snapshotId, result: response.data.result };
+    return result;
 }
 
 function createSnapshotClient(token: string): SnapshotClient {
@@ -135,6 +117,30 @@ function sanitizedGitHubError(
 
 function number(value: unknown): number | undefined {
     return typeof value === 'number' && Number.isSafeInteger(value) ? value : undefined;
+}
+
+function decodeReferenceResponse(value: unknown): { readonly sha: string } | undefined {
+    const data = field(value, 'data');
+    const object = field(data, 'object');
+    const sha = field(object, 'sha');
+    const type = field(object, 'type');
+    return type === 'commit' && typeof sha === 'string' && /^[a-fA-F0-9]{40}$/u.test(sha)
+        ? { sha }
+        : undefined;
+}
+
+function decodeSnapshotResponse(value: unknown): SubmissionResult | undefined {
+    const data = field(value, 'data');
+    const id = number(field(data, 'id'));
+    return id !== undefined && id >= 1 && field(data, 'result') === 'SUCCESS'
+        ? { id, result: 'SUCCESS' }
+        : undefined;
+}
+
+function field(value: unknown, name: string): unknown {
+    return typeof value === 'object' && value !== null
+        ? (value as Readonly<Record<string, unknown>>)[name]
+        : undefined;
 }
 
 function safeHeader(headers: Readonly<Record<string, unknown>> | undefined, name: string): string | undefined {

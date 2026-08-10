@@ -18,13 +18,19 @@ export function readInputs(reader: InputReader, maskSecret: (secret: string) => 
     const workspace = parseWorkspace(reader.getInput('workspace'));
     const validateLock = parseBoolean('validate-lock', reader.getInput('validate-lock'));
     const validationEnv = parseValidationEnv(reader.getInput('validation-env', { trimWhitespace: false }));
+    const state = parseState(reader.getInput('state'));
+    if (state === 'clear' && (validateLock || validationEnv.length !== 0)) {
+        throw new SubmitDependenciesError(
+            'ZOLT-INPUT-012',
+            'validate-lock and validation-env are only valid when state is submit.',
+        );
+    }
     if (!validateLock && validationEnv.length !== 0) {
         throw new SubmitDependenciesError(
             'ZOLT-INPUT-010',
             'validation-env is only valid when validate-lock is true.',
         );
     }
-    const state = parseState(reader.getInput('state'));
     const manifestPathInput = reader.getInput('manifest-path', { trimWhitespace: false });
     const manifestPath = parseZoltManifestPath(manifestPathInput);
     if (githubToken.trim() === '') {

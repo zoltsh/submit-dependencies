@@ -13,9 +13,21 @@ export class BoundedFileError extends Error {
     }
 }
 
-export async function readBoundedRegularFile(path: string, maxBytes: number): Promise<Buffer> {
+interface BoundedFileHandle {
+    close(): Promise<void>;
+    read(buffer: Uint8Array, offset: number, length: number, position: number): Promise<{ readonly bytesRead: number }>;
+    stat(options: { readonly bigint: true }): Promise<BigIntStats>;
+}
+
+type BoundedFileOpener = (path: string) => Promise<BoundedFileHandle>;
+
+export async function readBoundedRegularFile(
+    path: string,
+    maxBytes: number,
+    opener: BoundedFileOpener = openWithoutFollowing,
+): Promise<Buffer> {
     if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) throw new RangeError('maxBytes must be a non-negative safe integer.');
-    const file = await openWithoutFollowing(path);
+    const file = await opener(path);
     try {
         const before = await file.stat({ bigint: true });
         if (!before.isFile()) throw new BoundedFileError('not-file');

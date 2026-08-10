@@ -95,8 +95,8 @@ does not make the separate branch check and snapshot submission atomic.
 | `directory` | `.` | Project directory, or a directory inside the workspace |
 | `workspace` | `auto` | `auto`, `true`, or `false` |
 | `github-token` | `github.token` | Token used to submit the snapshot |
-| `validate-lock` | `false` | Run `zolt resolve --locked`; may contact configured repositories |
-| `validation-env` | — | Environment variable names passed to locked validation, one per line |
+| `validate-lock` | `false` | With `state: submit`, run `zolt resolve --locked`; may contact configured repositories |
+| `validation-env` | — | With `state: submit`, environment variable names passed to locked validation, one per line |
 | `state` | `submit` | `submit` a lock graph or `clear` its previous snapshot |
 | `manifest-path` | — | Canonical repository-relative `zolt.lock` path; required only with `state: clear` |
 
@@ -119,7 +119,8 @@ baseline environment plus only the variables named by `validation-env`:
 ```
 
 GitHub credential channels cannot be selected. A named value containing the
-GitHub token is rejected before Zolt runs.
+GitHub token is rejected before Zolt runs. Every selected value is registered
+for runner masking and action-output redaction, regardless of its variable name.
 
 ## Limits
 
@@ -148,9 +149,10 @@ Clear the old manifest identity after deleting or renaming a lockfile:
 ```
 
 This submits an empty snapshot with the old lockfile's stable identity. It does
-not install or run Zolt. For a rename, submit the new path and clear the old
-path. If one workflow submits several locks, append a stable manifest key to
-that job's concurrency group so unrelated locks do not cancel each other.
+not install or run Zolt. Lock validation inputs are rejected when clearing. For
+a rename, submit the new path and clear the old path. If one workflow submits
+several locks, append a stable manifest key to that job's concurrency group so
+unrelated locks do not cancel each other.
 
 The path must be absent from `GITHUB_SHA`, the checkout index, and the checkout.
 A path that never existed is also accepted, so repeating a clear is safe.
@@ -166,7 +168,10 @@ A path that never existed is also accepted, so repeating a clear is safe.
 ## Runners
 
 Supported targets are `linux-x64`, `linux-arm64`, `macos-x64`, and
-`macos-arm64`. Windows is not supported.
+`macos-arm64`. Windows is not supported, including for `state: clear`.
+
+The action supports GitHub.com only. GitHub Enterprise Server is not currently
+supported.
 
 ## Compatibility
 

@@ -97,6 +97,20 @@ describe('inputs', () => {
         }))).toThrow('ZOLT-INPUT-009');
     });
 
+    it('rejects submit-only validation inputs when clearing', () => {
+        for (const values of [
+            { 'validate-lock': 'true' },
+            { 'validation-env': 'PRIVATE_REPO_VALUE' },
+        ]) {
+            expect(() => readInputs(reader({
+                'github-token': 'secret',
+                'manifest-path': 'old/zolt.lock',
+                state: 'clear',
+                ...values,
+            }))).toThrow('ZOLT-INPUT-012');
+        }
+    });
+
     it('masks the token before validating other inputs', () => {
         const calls: string[] = [];
         expect(() => readInputs(reader({ 'github-token': 'secret', workspace: 'invalid' }), (secret) => {

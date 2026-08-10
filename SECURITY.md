@@ -40,7 +40,8 @@ and GitHub API failures as untrusted.
 - Version, tree, and SBOM commands receive only path, locale, and temporary-file
   variables. Validation receives a small baseline plus only names selected by
   `validation-env`; GitHub credential channels and values containing the GitHub
-  token fail closed.
+  token fail closed. Every selected value is masked and included in diagnostic
+  redaction regardless of its variable name.
 - All public diagnostics are control-stripped, bounded, and redacted before
   reaching the runner log.
 - The default branch tip is checked immediately before every snapshot POST.

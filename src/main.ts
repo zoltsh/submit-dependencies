@@ -14,6 +14,7 @@ import { installZolt, type InstalledZolt } from './install/install-zolt';
 import { resolveTarget } from './install/platform';
 import { publicErrorMessage, publicText, registeredSecrets } from './public-output';
 import { captureZoltOutputs } from './zolt/commands';
+import { validationEnvironmentValues } from './zolt/process';
 import { selectZoltProject } from './zolt/workspace';
 
 export interface ActionCore extends InputReader {
@@ -52,14 +53,22 @@ export async function runAction(dependencies: ActionDependencies = {}): Promise<
             actionCore.setSecret(secret);
             maskedSecrets.add(secret);
         });
-        secrets = registeredSecrets(environment, [inputs.githubToken]);
+        const validationValues = validationEnvironmentValues(environment, inputs.validationEnv);
+        secrets = registeredSecrets(environment, [inputs.githubToken, ...validationValues]);
+        for (const value of validationValues) {
+            if (value !== '' && !maskedSecrets.has(value)) {
+                actionCore.setSecret(value);
+                maskedSecrets.add(value);
+            }
+        }
         for (const secret of secrets) {
             if (!maskedSecrets.has(secret)) actionCore.setSecret(secret);
         }
         const submissionContext = (dependencies.resolveSubmissionContext ?? readGitHubSubmissionContext)(environment);
-        const target = inputs.state === 'submit'
-            ? resolveTarget(dependencies.platform ?? process.platform, dependencies.architecture ?? process.arch)
-            : undefined;
+        const target = resolveTarget(
+            dependencies.platform ?? process.platform,
+            dependencies.architecture ?? process.arch,
+        );
         repositoryView = await (dependencies.prepareRepository ?? createRepositoryView)({
             directory: inputs.state === 'clear' ? '.' : inputs.directory,
             expectedSha: submissionContext.sha,
@@ -101,7 +110,6 @@ export async function runAction(dependencies: ActionDependencies = {}): Promise<
             );
             return;
         }
-        if (target === undefined) throw new SubmitDependenciesError('ZOLT-PLATFORM-001', 'No release target was selected.');
         const selection = await (dependencies.selectProject ?? selectZoltProject)(context.repository, inputs.workspace);
         await repositoryView.verifyManifest({ manifestPath: selection.manifestPath, state: inputs.state });
         actionCore.info(

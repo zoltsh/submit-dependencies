@@ -185,6 +185,46 @@ describe('action adapter', () => {
         expect(core.failed).toEqual(['ZOLT-TEST-001: failure contained *** and ***']);
     });
 
+    it('masks selected validation values regardless of their variable names', async () => {
+        const core = actionCore({
+            'github-token': 'super-secret',
+            'validate-lock': 'true',
+            'validation-env': 'REPO_PASS',
+        });
+        await runAction({
+            ...happyDependencies(core),
+            capture: async () => await Promise.resolve({
+                bom: {}, manifestPath: 'zolt.lock', mode: 'project', tree: {},
+                warnings: ['warning included private-repository-value'],
+            }),
+            environment: {
+                PATH: '/bin',
+                REPO_PASS: 'private-repository-value',
+            },
+        });
+
+        expect(core.secrets).toContain('private-repository-value');
+        const warning = core.infoMock.mock.calls
+            .map(([message]) => String(message))
+            .find((message) => message.startsWith('Zolt warning:'));
+        expect(warning).toContain('***');
+        expect(warning).not.toContain('private-repository-value');
+    });
+
+    it('rejects clear operations on Windows before repository analysis', async () => {
+        const core = actionCore({
+            'github-token': 'super-secret',
+            'manifest-path': 'removed/zolt.lock',
+            state: 'clear',
+        });
+        const dependencies = happyDependencies(core);
+        const prepareRepository = vi.fn(dependencies.prepareRepository);
+        await runAction({ ...dependencies, platform: 'win32', prepareRepository });
+
+        expect(core.failed).toEqual([expect.stringContaining('ZOLT-INSTALL-001')]);
+        expect(prepareRepository).not.toHaveBeenCalled();
+    });
+
     it('does not submit when the final repository check fails', async () => {
         const core = actionCore({ 'github-token': 'super-secret' });
         const dependencies = happyDependencies(core);

@@ -33,13 +33,13 @@ describe('Zolt command orchestration', () => {
                 await writeFile(output, '{"bom":true}');
             }
             return {
-                stderr: Buffer.from(args.includes('sbom') ? 'license warning\n' : ''),
+                stderr: Buffer.from(args.includes('sbom') ? 'license warning repository-value\n' : ''),
                 stdout: Buffer.from(args.includes('tree') ? '{"tree":true}' : ''),
             };
         });
         const repository: RepositoryDirectory = { directory: root, relativeDirectory: '.', workspace: root };
         const inputs: ActionInputs = {
-            directory: '.', githubToken: 'github-secret', state: 'submit', validationEnv: ['MAVEN_SECRET'],
+            directory: '.', githubToken: 'github-secret', state: 'submit', validationEnv: ['REPO_PASS'],
             validateLock: true, workspace: 'true',
         };
         const result = await captureZoltOutputs('/verified/zolt', inputs, repository, {
@@ -50,7 +50,7 @@ describe('Zolt command orchestration', () => {
                 GITHUB_TOKEN: 'github-secret',
                 HOME: '/home/runner',
                 INPUT_GITHUB_TOKEN: 'github-secret',
-                MAVEN_SECRET: 'repository-secret',
+                REPO_PASS: 'repository-value',
                 PATH: '/bin',
                 RUNNER_TEMP: temporaryRoot,
             },
@@ -65,7 +65,7 @@ describe('Zolt command orchestration', () => {
         expect(calls).toHaveLength(3);
         expect(calls[0]?.args).toContain('resolve');
         expect(calls[0]?.args).toContain('--locked');
-        expect(calls[0]?.options.environment.MAVEN_SECRET).toBe('repository-secret');
+        expect(calls[0]?.options.environment.REPO_PASS).toBe('repository-value');
         expect(Object.values(calls[0]?.options.environment ?? {})).not.toContain('github-secret');
         expect(calls[0]?.options.environment).not.toHaveProperty('ACTIONS_FUTURE_TOKEN');
         expect(calls[0]?.options.environment).not.toHaveProperty('ACTIONS_ID_TOKEN_REQUEST_TOKEN');
@@ -78,7 +78,7 @@ describe('Zolt command orchestration', () => {
         expect(calls[2]?.options.environment).toEqual({ PATH: '/bin', RUNNER_TEMP: temporaryRoot });
         expect(result).toEqual({
             bom: { bom: true }, manifestPath: 'zolt.lock', mode: 'workspace', tree: { tree: true },
-            warnings: ['license warning'],
+            warnings: ['license warning ***'],
         });
         const sbomCall = calls.at(2);
         if (sbomCall === undefined) throw new Error('missing SBOM call');

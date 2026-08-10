@@ -94,3 +94,15 @@ export function validationEnvironment(
     }
     return result;
 }
+
+export function validationEnvironmentValues(
+    source: NodeJS.ProcessEnv,
+    requestedNames: readonly string[],
+): readonly string[] {
+    const values: string[] = [];
+    for (const name of requestedNames) {
+        const value = source[name];
+        if (value !== undefined) values.push(value);
+    }
+    return values;
+}
