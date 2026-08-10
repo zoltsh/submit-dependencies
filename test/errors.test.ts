@@ -13,6 +13,18 @@ describe('errors', () => {
         expect(publicErrorMessage(error)).not.toContain('raw command');
     });
 
+    it('preserves trusted error codes when short secrets collide with them', () => {
+        const error = new SubmitDependenciesError('ZOLT-TEST-001', 'contains T');
+
+        expect(publicErrorMessage(error, ['T'])).toBe('ZOLT-TEST-001: contains ***');
+        expect(publicErrorMessage('plain', ['T'])).toBe(
+            'ZOLT-UNEXPECTED-001: Unexpected action failure.',
+        );
+        expect(publicErrorMessage(
+            new SubmitDependenciesError('ZOLT-TEST-001', 'x'.repeat(5000)),
+        )).toHaveLength(4096);
+    });
+
     it('normalizes, redacts, and bounds all public text', () => {
         const environment = { AWS_ACCESS_KEY_ID: 'cloud-secret', DEPLOY_PASSWORD: 'other-secret' };
         const secrets = registeredSecrets(environment);
