@@ -32,10 +32,18 @@ export function publicBufferText(
 }
 
 export function publicErrorMessage(error: unknown, secrets: readonly string[] = []): string {
-    const value = error instanceof SubmitDependenciesError
-        ? error.message
-        : 'ZOLT-UNEXPECTED-001: Unexpected action failure.';
-    return publicText(value, secrets);
+    if (!(error instanceof SubmitDependenciesError)) {
+        return 'ZOLT-UNEXPECTED-001: Unexpected action failure.';
+    }
+    const prefix = `${error.code}: `;
+    const detail = error.message.startsWith(prefix)
+        ? error.message.slice(prefix.length)
+        : error.message;
+    return `${prefix}${publicText(
+        detail,
+        secrets,
+        Math.max(0, MAX_PUBLIC_MESSAGE_CHARACTERS - prefix.length),
+    )}`;
 }
 
 export function publicText(
