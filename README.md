@@ -23,7 +23,7 @@
 <br />
 
 > [!IMPORTANT]
-> This action is pre-release. Pin it to a reviewed full commit SHA.
+> Pin this action to a reviewed full commit SHA.
 
 ## Use
 
