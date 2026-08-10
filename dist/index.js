@@ -40752,12 +40752,12 @@ const ANSI_ESCAPE = new RegExp(`${escapeCharacter}(?:\\][^${bellCharacter}]*(?:$
 function registeredSecrets(environment, explicit = []) {
     const values = new Set();
     for (const value of explicit)
-        addSecret(values, value);
+        addSecret(values, value, 1);
     for (const [name, value] of Object.entries(environment)) {
         if (SENSITIVE_NAME.test(name))
-            addSecret(values, value);
+            addSecret(values, value, 4);
     }
-    return [...values].sort((left, right) => right.length - left.length);
+    return sortedSecrets(values);
 }
 function publicBufferText(value, secrets, limit = MAX_PUBLIC_MESSAGE_CHARACTERS) {
     return publicText(value.subarray(0, MAX_PUBLIC_SAMPLE_BYTES).toString('utf8'), secrets, limit);
@@ -40769,20 +40769,25 @@ function publicErrorMessage(error, secrets = []) {
     return publicText(value, secrets);
 }
 function publicText(value, secrets = [], limit = MAX_PUBLIC_MESSAGE_CHARACTERS) {
-    let safe = value
+    const normalizedSecrets = sortedSecrets(new Set(secrets
+        .map((secret) => normalizeText(secret))
+        .filter((secret) => secret !== '')));
+    let safe = redactSecrets(normalizeText(value), normalizedSecrets)
+        .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/giu, '$1***:***@')
+        .replace(/([?&](?:access_key|api_key|auth|credential|password|secret|token)=)[^&\s]+/giu, '$1***');
+    safe = redactSecrets(safe, normalizedSecrets).replace(/::/gu, ': :');
+    if (safe.length <= limit)
+        return safe;
+    return `${safe.slice(0, Math.max(0, limit - 1))}…`;
+}
+function normalizeText(value) {
+    return value
         .replace(ANSI_ESCAPE, '')
         .split('')
         .map((character) => isControlCharacter(character) ? ' ' : character)
         .join('')
         .replace(/\s+/gu, ' ')
         .trim();
-    safe = redactSecrets(safe, secrets)
-        .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/giu, '$1***:***@')
-        .replace(/([?&](?:access_key|api_key|auth|credential|password|secret|token)=)[^&\s]+/giu, '$1***');
-    safe = redactSecrets(safe, secrets).replace(/::/gu, ': :');
-    if (safe.length <= limit)
-        return safe;
-    return `${safe.slice(0, Math.max(0, limit - 1))}…`;
 }
 function redactSecrets(value, secrets) {
     let safe = value;
@@ -40792,9 +40797,12 @@ function redactSecrets(value, secrets) {
     }
     return safe;
 }
-function addSecret(values, value) {
-    if (value !== undefined && value.length >= 4)
+function addSecret(values, value, minimumLength) {
+    if (value !== undefined && value.length >= minimumLength)
         values.add(value);
+}
+function sortedSecrets(values) {
+    return [...values].sort((left, right) => right.length - left.length);
 }
 function isControlCharacter(value) {
     const codePoint = value.codePointAt(0);

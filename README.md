@@ -35,10 +35,6 @@ name: Submit Zolt dependencies
 on:
   push:
     branches: [main]
-    paths:
-      - "**/zolt.toml"
-      - "**/zolt-workspace.toml"
-      - "**/zolt.lock"
   workflow_dispatch:
 
 concurrency:
@@ -61,7 +57,9 @@ jobs:
 
 GitHub requires `contents: write` to accept dependency snapshots. The action
 rejects pull requests, merge queues, non-default branches, and attempts to
-submit across repositories. A fork can submit to its own dependency graph.
+submit across repositories. A fork can submit to its own dependency graph. Run
+the workflow for every default-branch commit so a newer commit can replace a
+stale lock-changing run.
 
 ## What it does
 

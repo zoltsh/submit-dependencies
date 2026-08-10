@@ -5,14 +5,17 @@ npm package.
 
 ## Prepare
 
-1. Update `src/generated/zolt-release.ts` with one published Zolt version, its
+1. Set `ACTION_VERSION` in `src/constants.ts` to the exact immutable version
+   tag without the leading `v`.
+2. Update `src/generated/zolt-release.ts` with one published Zolt version, its
    source commit, and all four archive checksums.
-2. Run `npm ci`, `npm audit`, `npm run bundle`, and `scripts/check`.
-3. Confirm the four-target integration job and Windows rejection job pass for
+3. Run `npm ci`, `npm audit`, `npm run bundle`, and `scripts/check`.
+4. Confirm the four-target integration job and Windows rejection job pass for
    the exact commit.
-4. Run the [GitHub canary](./CANARY.md).
-5. Review the source diff, `dist/index.js`, and `dist/licenses.txt`.
-6. Confirm `main` is clean and protected.
+5. Run the [GitHub canary](./CANARY.md) and confirm its dependency snapshot
+   reports the expected detector version.
+6. Review the source diff, `dist/index.js`, and `dist/licenses.txt`.
+7. Confirm `main` is clean and protected.
 
 ## Publish
 

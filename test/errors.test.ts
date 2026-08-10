@@ -25,7 +25,21 @@ describe('errors', () => {
 
     it('redacts secrets reconstructed by ANSI and control normalization', () => {
         expect(publicText('cloud-\u001B[31msecret\u001B[0m', ['cloud-secret'])).toBe('***');
-        expect(publicText('cloud-\tsecret', ['cloud- secret'])).toBe('***');
+        expect(publicText('cloud-\tsecret', ['cloud-\tsecret'])).toBe('***');
+        expect(publicText('cloud- secret', ['cloud-\tsecret'])).toBe('***');
         expect(publicText('safe', [''])).toBe('safe');
+    });
+
+    it('redacts every nonempty explicitly selected validation value', () => {
+        const selected = ['abc', 'abc\ndef', 'abc\tdef', 'abc  def'];
+        const secrets = registeredSecrets({ DEPLOY_PASSWORD: 'xyz' }, selected);
+
+        expect(secrets).toEqual(expect.arrayContaining([...selected]));
+        expect(secrets).not.toContain('xyz');
+        expect(publicText('abc', secrets)).toBe('***');
+        expect(publicText('abc\ndef', secrets)).toBe('***');
+        expect(publicText('abc\tdef', secrets)).toBe('***');
+        expect(publicText('abc  def', secrets)).toBe('***');
+        expect(publicText('abc def', secrets)).toBe('***');
     });
 });

@@ -38,9 +38,10 @@ Remove one dependency and one child edge without moving the lockfile. Rerun the
 same workflow and confirm GitHub removes the old package and edge while leaving
 other manifests unchanged.
 
-Start an older run with an intentional delay, then push a newer lock. Confirm
-the older run is canceled or rejected by the branch-tip check and cannot
-replace the newer snapshot.
+Start a delayed run for a lock-changing commit, then push an unrelated commit.
+Confirm the delayed run is canceled or rejected by the branch-tip check, the
+new tip runs the action, and GitHub retains the new tip's snapshot. This proves
+the workflow has no path filter that can leave a rejected graph stale.
 
 ## Clear
 
@@ -60,5 +61,5 @@ identity remains.
   contact configured repositories and receives only variables named by
   `validation-env`.
 
-Keep the action commit, workflow run links, counts, and PURL result with the
-release record. Delete the canary repository when finished.
+Keep the action commit, detector version, workflow run links, counts, and PURL
+result with the release record. Delete the canary repository when finished.

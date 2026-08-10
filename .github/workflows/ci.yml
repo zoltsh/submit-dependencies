@@ -49,6 +49,8 @@ jobs:
           tar -xzf "$archive" -C "$bin" actionlint
           echo "$bin" >> "$GITHUB_PATH"
       - name: Check repository
+        env:
+          EXPECTED_ACTION_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: scripts/check
       - name: Check dependency vulnerabilities
         run: npm audit

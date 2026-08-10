@@ -16,11 +16,11 @@ export function registeredSecrets(
     explicit: ReadonlyArray<string | undefined> = [],
 ): readonly string[] {
     const values: Set<string> = new Set();
-    for (const value of explicit) addSecret(values, value);
+    for (const value of explicit) addSecret(values, value, 1);
     for (const [name, value] of Object.entries(environment)) {
-        if (SENSITIVE_NAME.test(name)) addSecret(values, value);
+        if (SENSITIVE_NAME.test(name)) addSecret(values, value, 4);
     }
-    return [...values].sort((left, right) => right.length - left.length);
+    return sortedSecrets(values);
 }
 
 export function publicBufferText(
@@ -43,19 +43,27 @@ export function publicText(
     secrets: readonly string[] = [],
     limit = MAX_PUBLIC_MESSAGE_CHARACTERS,
 ): string {
-    let safe = value
+    const normalizedSecrets = sortedSecrets(new Set(
+        secrets
+            .map((secret) => normalizeText(secret))
+            .filter((secret) => secret !== ''),
+    ));
+    let safe = redactSecrets(normalizeText(value), normalizedSecrets)
+        .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/giu, '$1***:***@')
+        .replace(/([?&](?:access_key|api_key|auth|credential|password|secret|token)=)[^&\s]+/giu, '$1***');
+    safe = redactSecrets(safe, normalizedSecrets).replace(/::/gu, ': :');
+    if (safe.length <= limit) return safe;
+    return `${safe.slice(0, Math.max(0, limit - 1))}…`;
+}
+
+function normalizeText(value: string): string {
+    return value
         .replace(ANSI_ESCAPE, '')
         .split('')
         .map((character) => isControlCharacter(character) ? ' ' : character)
         .join('')
         .replace(/\s+/gu, ' ')
         .trim();
-    safe = redactSecrets(safe, secrets)
-        .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/giu, '$1***:***@')
-        .replace(/([?&](?:access_key|api_key|auth|credential|password|secret|token)=)[^&\s]+/giu, '$1***');
-    safe = redactSecrets(safe, secrets).replace(/::/gu, ': :');
-    if (safe.length <= limit) return safe;
-    return `${safe.slice(0, Math.max(0, limit - 1))}…`;
 }
 
 function redactSecrets(value: string, secrets: readonly string[]): string {
@@ -66,8 +74,12 @@ function redactSecrets(value: string, secrets: readonly string[]): string {
     return safe;
 }
 
-function addSecret(values: Set<string>, value: string | undefined): void {
-    if (value !== undefined && value.length >= 4) values.add(value);
+function addSecret(values: Set<string>, value: string | undefined, minimumLength: number): void {
+    if (value !== undefined && value.length >= minimumLength) values.add(value);
+}
+
+function sortedSecrets(values: ReadonlySet<string>): readonly string[] {
+    return [...values].sort((left, right) => right.length - left.length);
 }
 
 function isControlCharacter(value: string): boolean {
