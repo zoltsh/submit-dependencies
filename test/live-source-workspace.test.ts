@@ -31,7 +31,7 @@ describe('live source-built Zolt workspace contract', () => {
             });
             const result = convert({ ...machine, purlPolicy: PRESERVE_ZOLT_PURLS });
 
-            expect(result).toMatchObject({ lockVersion: 5, mode: 'workspace', treeSchema: 3 });
+            expect(result).toMatchObject({ lockVersion: 6, mode: 'workspace', treeSchema: 3 });
             expect(result.statistics.externalDependencies).toBeGreaterThan(0);
             expect([...result.dependencies.keys()]).not.toContainEqual(expect.stringContaining('/sh.zolt/'));
         },

@@ -98,8 +98,8 @@ function decodeV3(root: Record<string, unknown>): TreeDocument {
     requireLiteral(root.command, 'tree', 'tree.command');
     requireLiteral(root.mode, 'workspace', 'tree.mode');
     const lockVersion = integer(root.lockVersion, 'tree.lockVersion');
-    if (lockVersion !== 5) {
-        throw contractError(`Tree schema 3 lockVersion ${lockVersion.toString()} is unsupported; expected 5.`);
+    if (lockVersion !== 5 && lockVersion !== 6) {
+        throw contractError(`Tree schema 3 lockVersion ${lockVersion.toString()} is unsupported; expected 5 or 6.`);
     }
     const workspace = object(root.workspace, 'tree.workspace');
     assertKeys(workspace, 'tree.workspace', ['name', 'members']);
