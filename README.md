@@ -173,9 +173,9 @@ supported.
 
 ## Compatibility
 
-The action accepts Zolt tree schemas 1 and 3 and workspace lock version 5. It
-bundles Zolt `0.1.0-zap.20260806.5ba5361d856f` from source commit
-[`5ba5361d856fd43d65e4ca2d933271a6eff01c3f`](https://github.com/zoltsh/zolt/commit/5ba5361d856fd43d65e4ca2d933271a6eff01c3f).
+The action accepts Zolt tree schemas 1 and 3 and workspace lock versions 5 and
+6. It bundles Zolt `0.1.0-zap.20260816.aa64f3e7043e` from source commit
+[`aa64f3e7043e787ff22d4d89f0cab13a7bdc64a8`](https://github.com/zoltsh/zolt/commit/aa64f3e7043e787ff22d4d89f0cab13a7bdc64a8).
 
 ## Read more
 

@@ -1,4 +1,4 @@
-export const ACTION_VERSION = '0.1.0';
+export const ACTION_VERSION = '0.1.1';
 export const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
 export const MAX_ARCHIVE_DECOMPRESSION_RATIO = 100;
 export const MAX_ARCHIVE_ENTRIES = 10_000;

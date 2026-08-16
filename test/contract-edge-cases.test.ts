@@ -97,11 +97,17 @@ describe('tree contract edge cases', () => {
     it('rejects workspace lock versions and unknown member references', () => {
         const badVersion = workspaceTree([]);
         badVersion.lockVersion = 4;
-        expect(() => decodeTree(badVersion)).toThrow('expected 5');
+        expect(() => decodeTree(badVersion)).toThrow('expected 5 or 6');
 
         const badMember = workspaceTree([{ id: 'org.example:a', version: '1', scope: 'compile', direct: true,
             members: ['unknown'] }]);
         expect(() => decodeTree(badMember)).toThrow('unknown workspace member');
+    });
+
+    it.each([5, 6])('accepts workspace lock version %i', (lockVersion) => {
+        const value = workspaceTree([]);
+        value.lockVersion = lockVersion;
+        expect(decodeTree(value)).toMatchObject({ lockVersion, mode: 'workspace', schemaVersion: 3 });
     });
 
     it('rejects duplicate tree node identities', () => {

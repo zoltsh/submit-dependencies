@@ -43,16 +43,16 @@ describe('live pinned Zolt workspace contract', () => {
                 });
                 const result = convert({ ...machine, purlPolicy: PRESERVE_ZOLT_PURLS });
 
-                expect(result).toMatchObject({ lockVersion: 5, mode: 'workspace', treeSchema: 3 });
+                expect(result).toMatchObject({ lockVersion: 6, mode: 'workspace', treeSchema: 3 });
                 expect(result.statistics).toEqual({
-                    dependencyEdges: 12,
-                    development: 14,
-                    direct: 12,
-                    externalDependencies: 22,
-                    indirect: 10,
-                    runtime: 8,
+                    dependencyEdges: 21,
+                    development: 21,
+                    direct: 14,
+                    externalDependencies: 30,
+                    indirect: 16,
+                    runtime: 9,
                 });
-                expect(result.dependencies.size).toBe(22);
+                expect(result.dependencies.size).toBe(30);
                 expect([...result.dependencies.keys()]).not.toContainEqual(expect.stringContaining('/sh.zolt/'));
                 for (const [purl, dependency] of result.dependencies) {
                     expect(dependency.dependencies).not.toContain(purl);

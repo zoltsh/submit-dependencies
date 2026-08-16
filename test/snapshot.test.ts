@@ -43,7 +43,7 @@ describe('dependency snapshot construction', () => {
                 html_url: 'https://github.com/zoltsh/demo/actions/runs/42',
             },
             detector: {
-                name: 'zoltsh/submit-dependencies', version: '0.1.0',
+                name: 'zoltsh/submit-dependencies', version: '0.1.1',
                 url: 'https://github.com/zoltsh/submit-dependencies',
             },
         });
