@@ -34,7 +34,7 @@ export function workspaceTree(
         schemaVersion: 3,
         command: 'tree',
         mode: 'workspace',
-        lockVersion: 5,
+        lockVersion: 7,
         workspace: {
             name: 'demo-workspace',
             members: [

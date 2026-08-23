@@ -101,7 +101,7 @@ describe('immutable repository view', () => {
 
         const added = await committedRepository();
         const addedView = await openView(added);
-        await writeFile(join(addedView.workspace, 'zolt-workspace.toml'), 'name = "injected"\n');
+        await writeFile(join(addedView.workspace, 'injected.txt'), 'injected\n');
         await expect(addedView.verifyManifest({ manifestPath: 'zolt.lock', state: 'submit' })).rejects.toThrow(
             /ZOLT-GIT-001.*private repository view changed/u,
         );
@@ -149,7 +149,7 @@ describe('immutable repository view', () => {
 
     it('exports exact blobs even when archive attributes request omission or substitution', async () => {
         const repository = await committedRepository();
-        const lock = 'version = 5\nmarker = "$Format:%H$"\n';
+        const lock = 'version = 7\nmarker = "$Format:%H$"\n';
         await writeFile(join(repository.root, 'zolt.lock'), lock);
         await writeFile(join(repository.root, '.gitattributes'), [
             'zolt.toml export-ignore',
@@ -217,7 +217,7 @@ async function committedRepository(): Promise<FixtureRepository> {
     await git(root, ['init', '--initial-branch=main']);
     await writeFile(join(root, 'README.md'), 'fixture\n');
     await writeFile(join(root, 'zolt.toml'), '[project]\nname = "demo"\n');
-    await writeFile(join(root, 'zolt.lock'), 'version = 5\n');
+    await writeFile(join(root, 'zolt.lock'), 'version = 7\n');
     await writeFile(join(root, 'empty'), '');
     await mkdir(join(root, 'scripts'));
     await writeFile(join(root, 'scripts', 'run'), '#!/bin/sh\n');

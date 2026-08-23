@@ -168,7 +168,7 @@ describe('pure dependency converter', () => {
             [extra, { dependencies: [], packageUrl: extra, relationship: 'indirect', scope: 'runtime' }],
             [shared, { dependencies: [extra], packageUrl: shared, relationship: 'direct', scope: 'runtime' }],
         ]);
-        expect(result).toMatchObject({ lockVersion: 5, mode: 'workspace', treeSchema: 3 });
+        expect(result).toMatchObject({ lockVersion: 7, mode: 'workspace', treeSchema: 3 });
         expect([...result.dependencies.keys()].some((value) => value.includes('com.example'))).toBe(false);
     });
 

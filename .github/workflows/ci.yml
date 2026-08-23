@@ -96,7 +96,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: zoltsh/zolt
-          ref: aa64f3e7043e787ff22d4d89f0cab13a7bdc64a8
+          ref: 0ea7fe1473b4b852e62c452a04c2518d5e7e93ff
           path: zolt-workspace
           persist-credentials: false
 

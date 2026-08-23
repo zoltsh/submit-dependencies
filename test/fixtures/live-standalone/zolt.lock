@@ -1,15 +1,45 @@
-version = 5
-projectResolutionFingerprint = "sha256:783eb4c55a5fb1521b0272ebe9ba985c25f9fcac2f4934b6d6296fae8787d3b4"
-projectResolutionInputFingerprints = ["dependencies.compile=sha256:d345cd4afdc6c73d5a0024b368579b1b7fc60f3774b15e608b97f893e9b45a4d", "dependencies.test=sha256:5a379d5b8b126b3cfa7ec369efb1281b38f38fb681439c9de685618c2dffb28a", "dependencyMetadata=sha256:f5e650b8383c57a72f1d258bdc7c9129553a8571950c8f62444e0b0f2305460b", "framework.quarkus=sha256:68d7c5d5cedc29b433b63ce5b53c7054a4c27e79e03430701582a1b1d5cea01f", "framework.springBoot.native=sha256:92f88357bc81a539a14f201ee0d0a7525b5e4e2acaf07f0e9b826964bb5a4b63", "java=sha256:fda3a3e438244e08721bfc730e9f34ef4ee260820f6fbcd44a4c64601a93bf71", "package=sha256:1ae86c65b1e6e588a2c7b97e49de5aa12a31ace329e1253d80d6be0028c0ec59", "repositories=sha256:e01822fdeeed818adfc2169ed3a3c6e24d67f4455bfc41e52af4d25221a85c51", "schema=sha256:5c48b263086f330542d7f620f6e05a9d4f2ffe1ca79d8b531d03ea3cbc6f9b15"]
+version = 7
+projectResolutionFingerprint = "sha256:48c694db780f30a33debc290b2a3b0ac91a827283e1a4c3429860b3ed3353d9e"
+projectResolutionInputFingerprints = ["dependencies.compile=sha256:d345cd4afdc6c73d5a0024b368579b1b7fc60f3774b15e608b97f893e9b45a4d", "dependencies.test=sha256:e5516a403420e89a8b33189dcf163f06078935e4e6bcd5907dab410bee6e5a9e", "dependencyMetadata=sha256:631c8683f8117ee2bdb32118c7d4100fb4e218520139e0fe31396577c2e7d2c5", "framework.quarkus=sha256:68d7c5d5cedc29b433b63ce5b53c7054a4c27e79e03430701582a1b1d5cea01f", "framework.springBoot.native=sha256:92f88357bc81a539a14f201ee0d0a7525b5e4e2acaf07f0e9b826964bb5a4b63", "java=sha256:fda3a3e438244e08721bfc730e9f34ef4ee260820f6fbcd44a4c64601a93bf71", "package=sha256:1ae86c65b1e6e588a2c7b97e49de5aa12a31ace329e1253d80d6be0028c0ec59", "repositories=sha256:050e76b3ceee3c8b6aa20eb9cc97ddeed8c5ba88e4bc93efa14fa72f06aa786e", "schema=sha256:728eb979951359b22239feac7a9b20e12181a730e2c206f050502d52e0dcaf85"]
+
+[[dependencyRoot]]
+member = "."
+id = "io.netty:netty-transport-native-epoll"
+version = "4.1.136.Final"
+variant = "jar|linux-x86_64"
+lane = "implementation"
+resolvedScope = "compile"
+
+[[dependencyRoot]]
+member = "."
+id = "org.slf4j:slf4j-api"
+version = "2.0.17"
+lane = "implementation"
+resolvedScope = "compile"
+
+[[dependencyRoot]]
+member = "."
+id = "org.springframework.boot:spring-boot-dependencies"
+version = "3.5.5"
+variant = "pom"
+lane = "implementation"
+resolvedScope = "compile"
+
+[[dependencyRoot]]
+member = "."
+id = "org.junit.platform:junit-platform-console-standalone"
+version = "1.11.4"
+lane = "test"
+resolvedScope = "test"
 
 [[package]]
 id = "io.netty:netty-buffer"
 version = "4.1.136.Final"
-source = "maven-central"
+source = "central"
 scope = "compile"
 direct = false
-jar = "io/netty/netty-buffer/4.1.136.Final/netty-buffer-4.1.136.Final.jar"
-pom = "io/netty/netty-buffer/4.1.136.Final/netty-buffer-4.1.136.Final.pom"
+jar = "blobs/v2/sha256/c88f13fc41156fde5df918c7b240038dfbe97ac57576163f208630391789b5d5/netty-buffer-4.1.136.Final.jar"
+pom = "blobs/v2/sha256/5b4ddbc5f43c63a4498a66e355714730697c00b8986ed63d484d8a4f2a77ca8b/netty-buffer-4.1.136.Final.pom"
 jarSha256 = "c88f13fc41156fde5df918c7b240038dfbe97ac57576163f208630391789b5d5"
 pomSha256 = "5b4ddbc5f43c63a4498a66e355714730697c00b8986ed63d484d8a4f2a77ca8b"
 dependencies = ["io.netty:netty-common:4.1.136.Final:jar:compile"]
@@ -17,11 +47,11 @@ dependencies = ["io.netty:netty-common:4.1.136.Final:jar:compile"]
 [[package]]
 id = "io.netty:netty-common"
 version = "4.1.136.Final"
-source = "maven-central"
+source = "central"
 scope = "compile"
 direct = false
-jar = "io/netty/netty-common/4.1.136.Final/netty-common-4.1.136.Final.jar"
-pom = "io/netty/netty-common/4.1.136.Final/netty-common-4.1.136.Final.pom"
+jar = "blobs/v2/sha256/e2f73be7ec359b46583ad875521137000eff520bafd320e730846ec9974f3be6/netty-common-4.1.136.Final.jar"
+pom = "blobs/v2/sha256/1c7b8b7e726a65000f6bad997759d05719a88a234ae1f3b2420669b471473018/netty-common-4.1.136.Final.pom"
 jarSha256 = "e2f73be7ec359b46583ad875521137000eff520bafd320e730846ec9974f3be6"
 pomSha256 = "1c7b8b7e726a65000f6bad997759d05719a88a234ae1f3b2420669b471473018"
 dependencies = []
@@ -29,11 +59,11 @@ dependencies = []
 [[package]]
 id = "io.netty:netty-resolver"
 version = "4.1.136.Final"
-source = "maven-central"
+source = "central"
 scope = "compile"
 direct = false
-jar = "io/netty/netty-resolver/4.1.136.Final/netty-resolver-4.1.136.Final.jar"
-pom = "io/netty/netty-resolver/4.1.136.Final/netty-resolver-4.1.136.Final.pom"
+jar = "blobs/v2/sha256/e64972fec474f5b9bd086b738154d190a923e82c4923ac550aff4f5ea9e98600/netty-resolver-4.1.136.Final.jar"
+pom = "blobs/v2/sha256/0b3e27eadb478a0c0de5ad42d84d3749e629c1d7e96b1b5dca6827c2d1cf25a2/netty-resolver-4.1.136.Final.pom"
 jarSha256 = "e64972fec474f5b9bd086b738154d190a923e82c4923ac550aff4f5ea9e98600"
 pomSha256 = "0b3e27eadb478a0c0de5ad42d84d3749e629c1d7e96b1b5dca6827c2d1cf25a2"
 dependencies = ["io.netty:netty-common:4.1.136.Final:jar:compile"]
@@ -41,11 +71,11 @@ dependencies = ["io.netty:netty-common:4.1.136.Final:jar:compile"]
 [[package]]
 id = "io.netty:netty-transport-classes-epoll"
 version = "4.1.136.Final"
-source = "maven-central"
+source = "central"
 scope = "compile"
 direct = false
-jar = "io/netty/netty-transport-classes-epoll/4.1.136.Final/netty-transport-classes-epoll-4.1.136.Final.jar"
-pom = "io/netty/netty-transport-classes-epoll/4.1.136.Final/netty-transport-classes-epoll-4.1.136.Final.pom"
+jar = "blobs/v2/sha256/f6a0b631b98667f131daf4ca07a9cae1072d58e259dcbc0f8c6a053d843449c6/netty-transport-classes-epoll-4.1.136.Final.jar"
+pom = "blobs/v2/sha256/857b642411ce94ef526cfb6cb6ac97d4e5714fa601f3bec808804e7c328f3cc7/netty-transport-classes-epoll-4.1.136.Final.pom"
 jarSha256 = "f6a0b631b98667f131daf4ca07a9cae1072d58e259dcbc0f8c6a053d843449c6"
 pomSha256 = "857b642411ce94ef526cfb6cb6ac97d4e5714fa601f3bec808804e7c328f3cc7"
 dependencies = ["io.netty:netty-buffer:4.1.136.Final:jar:compile", "io.netty:netty-common:4.1.136.Final:jar:compile", "io.netty:netty-transport-native-unix-common:4.1.136.Final:jar:compile", "io.netty:netty-transport:4.1.136.Final:jar:compile"]
@@ -53,11 +83,11 @@ dependencies = ["io.netty:netty-buffer:4.1.136.Final:jar:compile", "io.netty:net
 [[package]]
 id = "io.netty:netty-transport-native-epoll"
 version = "4.1.136.Final"
-source = "maven-central"
+source = "central"
 scope = "compile"
 direct = true
-jar = "io/netty/netty-transport-native-epoll/4.1.136.Final/netty-transport-native-epoll-4.1.136.Final-linux-x86_64.jar"
-pom = "io/netty/netty-transport-native-epoll/4.1.136.Final/netty-transport-native-epoll-4.1.136.Final.pom"
+jar = "blobs/v2/sha256/c3956f90241582bbbad5612c3159cffeb7c3533324759f3c3bd778ca9b176cae/netty-transport-native-epoll-4.1.136.Final-linux-x86_64.jar"
+pom = "blobs/v2/sha256/edb025669303eb1d304b94bbe56992dcd5a819e88abec5f6f66f07bec4cadbf0/netty-transport-native-epoll-4.1.136.Final.pom"
 jarSha256 = "c3956f90241582bbbad5612c3159cffeb7c3533324759f3c3bd778ca9b176cae"
 pomSha256 = "edb025669303eb1d304b94bbe56992dcd5a819e88abec5f6f66f07bec4cadbf0"
 dependencies = ["io.netty:netty-buffer:4.1.136.Final:jar:compile", "io.netty:netty-common:4.1.136.Final:jar:compile", "io.netty:netty-transport-classes-epoll:4.1.136.Final:jar:compile", "io.netty:netty-transport-native-unix-common:4.1.136.Final:jar:compile", "io.netty:netty-transport:4.1.136.Final:jar:compile"]
@@ -65,11 +95,11 @@ dependencies = ["io.netty:netty-buffer:4.1.136.Final:jar:compile", "io.netty:net
 [[package]]
 id = "io.netty:netty-transport-native-unix-common"
 version = "4.1.136.Final"
-source = "maven-central"
+source = "central"
 scope = "compile"
 direct = false
-jar = "io/netty/netty-transport-native-unix-common/4.1.136.Final/netty-transport-native-unix-common-4.1.136.Final.jar"
-pom = "io/netty/netty-transport-native-unix-common/4.1.136.Final/netty-transport-native-unix-common-4.1.136.Final.pom"
+jar = "blobs/v2/sha256/7e014c9b13defd9d254d4e5a5edd8ab6dde17533e1152f99699a6b28b2967a8a/netty-transport-native-unix-common-4.1.136.Final.jar"
+pom = "blobs/v2/sha256/943574b27adfa0de2303e8b94f86b486ac1b97fbf1caa73bdc8cfacf43af2131/netty-transport-native-unix-common-4.1.136.Final.pom"
 jarSha256 = "7e014c9b13defd9d254d4e5a5edd8ab6dde17533e1152f99699a6b28b2967a8a"
 pomSha256 = "943574b27adfa0de2303e8b94f86b486ac1b97fbf1caa73bdc8cfacf43af2131"
 dependencies = ["io.netty:netty-buffer:4.1.136.Final:jar:compile", "io.netty:netty-common:4.1.136.Final:jar:compile", "io.netty:netty-transport:4.1.136.Final:jar:compile"]
@@ -77,119 +107,35 @@ dependencies = ["io.netty:netty-buffer:4.1.136.Final:jar:compile", "io.netty:net
 [[package]]
 id = "io.netty:netty-transport"
 version = "4.1.136.Final"
-source = "maven-central"
+source = "central"
 scope = "compile"
 direct = false
-jar = "io/netty/netty-transport/4.1.136.Final/netty-transport-4.1.136.Final.jar"
-pom = "io/netty/netty-transport/4.1.136.Final/netty-transport-4.1.136.Final.pom"
+jar = "blobs/v2/sha256/b92881ea925721ed42fee5122a42b8bce4b84da737dbc3ca2d84dfaca52c28b6/netty-transport-4.1.136.Final.jar"
+pom = "blobs/v2/sha256/2b0587688ec63e13684e5dd985ae4665126f4b5cf64bf27052fabaea135f691a/netty-transport-4.1.136.Final.pom"
 jarSha256 = "b92881ea925721ed42fee5122a42b8bce4b84da737dbc3ca2d84dfaca52c28b6"
 pomSha256 = "2b0587688ec63e13684e5dd985ae4665126f4b5cf64bf27052fabaea135f691a"
 dependencies = ["io.netty:netty-buffer:4.1.136.Final:jar:compile", "io.netty:netty-common:4.1.136.Final:jar:compile", "io.netty:netty-resolver:4.1.136.Final:jar:compile"]
 
 [[package]]
-id = "org.apiguardian:apiguardian-api"
-version = "1.1.2"
-source = "maven-central"
-scope = "test"
-direct = false
-jar = "org/apiguardian/apiguardian-api/1.1.2/apiguardian-api-1.1.2.jar"
-pom = "org/apiguardian/apiguardian-api/1.1.2/apiguardian-api-1.1.2.pom"
-jarSha256 = "b509448ac506d607319f182537f0b35d71007582ec741832a1f111e5b5b70b38"
-pomSha256 = "32355081d109095c3d5d374d5a43b4f4c1b75d549e983ef50723e2772e5302a0"
-dependencies = []
-
-[[package]]
-id = "org.junit.platform:junit-platform-commons"
+id = "org.junit.platform:junit-platform-console-standalone"
 version = "1.11.4"
-source = "maven-central"
+source = "central"
 scope = "test"
-direct = false
-jar = "org/junit/platform/junit-platform-commons/1.11.4/junit-platform-commons-1.11.4.jar"
-pom = "org/junit/platform/junit-platform-commons/1.11.4/junit-platform-commons-1.11.4.pom"
-jarSha256 = "9edd969b0d0670c54105bc91ae79bd1c6f503e12115faba82073b84c86bbc334"
-pomSha256 = "cd12d2b7c242f165548ed9c9406160dcedb6080925b47cf731e0fdae5fb4bce2"
-dependencies = ["org.apiguardian:apiguardian-api:1.1.2:jar:test"]
-
-[[package]]
-id = "org.junit.platform:junit-platform-console"
-version = "1.11.4"
-source = "maven-central"
-scope = "test"
-direct = false
-jar = "org/junit/platform/junit-platform-console/1.11.4/junit-platform-console-1.11.4.jar"
-pom = "org/junit/platform/junit-platform-console/1.11.4/junit-platform-console-1.11.4.pom"
-jarSha256 = "a9c3309cdfded3542200de85da6cb274864439d6b02ba80bb45ecc8e0bdf1be7"
-pomSha256 = "496d8b270b4d6c7a8b163326a42df7278f923540da3e6713780adf79aa0e79ca"
-dependencies = ["org.apiguardian:apiguardian-api:1.1.2:jar:test", "org.junit.platform:junit-platform-reporting:1.11.4:jar:test"]
-
-[[package]]
-id = "org.junit.platform:junit-platform-engine"
-version = "1.11.4"
-source = "maven-central"
-scope = "test"
-direct = false
-jar = "org/junit/platform/junit-platform-engine/1.11.4/junit-platform-engine-1.11.4.jar"
-pom = "org/junit/platform/junit-platform-engine/1.11.4/junit-platform-engine-1.11.4.pom"
-jarSha256 = "b1dd998f64f9acadc15966d9cd3d08074662677b3e390f0a38fcbf0bb4c72330"
-pomSha256 = "943471579984212fbe69d03edec7c2ff4fbab1888be0b80c265ea70869fd8abd"
-dependencies = ["org.apiguardian:apiguardian-api:1.1.2:jar:test", "org.junit.platform:junit-platform-commons:1.11.4:jar:test", "org.opentest4j:opentest4j:1.3.0:jar:test"]
-
-[[package]]
-id = "org.junit.platform:junit-platform-launcher"
-version = "1.11.4"
-source = "maven-central"
-scope = "test"
-direct = false
-jar = "org/junit/platform/junit-platform-launcher/1.11.4/junit-platform-launcher-1.11.4.jar"
-pom = "org/junit/platform/junit-platform-launcher/1.11.4/junit-platform-launcher-1.11.4.pom"
-jarSha256 = "d7430bd029e7fcced53ee445e4d2d1a8a1e043ea4c4df43b6335a857f79761ae"
-pomSha256 = "b67cd53802e06aa82aa5966e99fb42917d220457849e5c080c8360753ed67c31"
-dependencies = ["org.apiguardian:apiguardian-api:1.1.2:jar:test", "org.junit.platform:junit-platform-engine:1.11.4:jar:test"]
-
-[[package]]
-id = "org.junit.platform:junit-platform-reporting"
-version = "1.11.4"
-source = "maven-central"
-scope = "test"
-direct = false
-jar = "org/junit/platform/junit-platform-reporting/1.11.4/junit-platform-reporting-1.11.4.jar"
-pom = "org/junit/platform/junit-platform-reporting/1.11.4/junit-platform-reporting-1.11.4.pom"
-jarSha256 = "df6896109bfaef4de8d2fa9e3371a6176936d1a45a6c0e7fd8f7e6dd6f4c5597"
-pomSha256 = "9496915d0a8a194b9ad9408c8ed307785339124bad7a40a9f44e425051c95601"
-dependencies = ["org.apiguardian:apiguardian-api:1.1.2:jar:test", "org.junit.platform:junit-platform-launcher:1.11.4:jar:test"]
-
-[[package]]
-id = "org.opentest4j:opentest4j"
-version = "1.3.0"
-source = "maven-central"
-scope = "test"
-direct = false
-jar = "org/opentest4j/opentest4j/1.3.0/opentest4j-1.3.0.jar"
-pom = "org/opentest4j/opentest4j/1.3.0/opentest4j-1.3.0.pom"
-jarSha256 = "48e2df636cab6563ced64dcdff8abb2355627cb236ef0bf37598682ddf742f1b"
-pomSha256 = "9bf7cffc410f3e8372c2522578df9ca56d9d43bd937e30948706c232a943b355"
+direct = true
+jar = "blobs/v2/sha256/b016ef6b1c3454d6d7c2c88ce081dabf289699686af6622d6e4e2e1b54b4a2fc/junit-platform-console-standalone-1.11.4.jar"
+pom = "blobs/v2/sha256/f44619c18edb94360cc382e6baf943e9300625d1a0a949ee158977eace5713d1/junit-platform-console-standalone-1.11.4.pom"
+jarSha256 = "b016ef6b1c3454d6d7c2c88ce081dabf289699686af6622d6e4e2e1b54b4a2fc"
+pomSha256 = "f44619c18edb94360cc382e6baf943e9300625d1a0a949ee158977eace5713d1"
 dependencies = []
 
 [[package]]
 id = "org.slf4j:slf4j-api"
 version = "2.0.17"
-source = "maven-central"
+source = "central"
 scope = "compile"
 direct = true
-jar = "org/slf4j/slf4j-api/2.0.17/slf4j-api-2.0.17.jar"
-pom = "org/slf4j/slf4j-api/2.0.17/slf4j-api-2.0.17.pom"
-jarSha256 = "7b751d952061954d5abfed7181c1f645d336091b679891591d63329c622eb832"
-pomSha256 = "150c40287f7cecdc21b9380caac98e928c4f33c023db6b348df1c5ac977026bf"
-dependencies = []
-
-[[package]]
-id = "org.slf4j:slf4j-api"
-version = "2.0.17"
-source = "maven-central"
-scope = "test"
-direct = true
-jar = "org/slf4j/slf4j-api/2.0.17/slf4j-api-2.0.17.jar"
-pom = "org/slf4j/slf4j-api/2.0.17/slf4j-api-2.0.17.pom"
+jar = "blobs/v2/sha256/7b751d952061954d5abfed7181c1f645d336091b679891591d63329c622eb832/slf4j-api-2.0.17.jar"
+pom = "blobs/v2/sha256/150c40287f7cecdc21b9380caac98e928c4f33c023db6b348df1c5ac977026bf/slf4j-api-2.0.17.pom"
 jarSha256 = "7b751d952061954d5abfed7181c1f645d336091b679891591d63329c622eb832"
 pomSha256 = "150c40287f7cecdc21b9380caac98e928c4f33c023db6b348df1c5ac977026bf"
 dependencies = []
@@ -197,12 +143,12 @@ dependencies = []
 [[package]]
 id = "org.springframework.boot:spring-boot-dependencies"
 version = "3.5.5"
-source = "maven-central"
+source = "central"
 scope = "compile"
 direct = true
-pom = "org/springframework/boot/spring-boot-dependencies/3.5.5/spring-boot-dependencies-3.5.5.pom"
+pom = "blobs/v2/sha256/256ff112c7379b64e91c8deeb024f50c809212e5c219348aec44647df386c59a/spring-boot-dependencies-3.5.5.pom"
 pomSha256 = "256ff112c7379b64e91c8deeb024f50c809212e5c219348aec44647df386c59a"
-artifact = "org/springframework/boot/spring-boot-dependencies/3.5.5/spring-boot-dependencies-3.5.5.pom"
+artifact = "blobs/v2/sha256/256ff112c7379b64e91c8deeb024f50c809212e5c219348aec44647df386c59a/spring-boot-dependencies-3.5.5.pom"
 artifactType = "pom"
 artifactSha256 = "256ff112c7379b64e91c8deeb024f50c809212e5c219348aec44647df386c59a"
 dependencies = []

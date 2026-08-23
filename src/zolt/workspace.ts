@@ -26,7 +26,7 @@ export async function selectZoltProject(
     if (workspaceMode === 'true') {
         throw new SubmitDependenciesError(
             'ZOLT-WORKSPACE-001',
-            `No Zolt workspace was found from ${repository.relativeDirectory}. Expected zolt.toml with [workspace] or zolt-workspace.toml. Set workspace: false to submit a standalone project.`,
+            `No Zolt workspace was found from ${repository.relativeDirectory}. Expected zolt.toml with [workspace]. Set workspace: false to submit a standalone project.`,
         );
     }
     return standalone(repository, repository.directory);
@@ -35,8 +35,6 @@ export async function selectZoltProject(
 async function discoverWorkspace(repository: RepositoryDirectory): Promise<string | undefined> {
     let current = repository.directory;
     while (contained(repository.workspace, current)) {
-        const legacy = resolve(current, 'zolt-workspace.toml');
-        if (await regularFileInside(legacy, repository.workspace, false) !== undefined) return current;
         const rootConfig = await regularFileInside(resolve(current, 'zolt.toml'), repository.workspace, false);
         if (rootConfig !== undefined && await containsWorkspaceTable(rootConfig)) return current;
         if (current === repository.workspace) break;

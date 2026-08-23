@@ -132,8 +132,7 @@ oversized files, or use a smaller repository, if a limit is exceeded.
 `workspace: auto` searches upward for a workspace. `workspace: true` requires
 one. `workspace: false` submits only the selected project.
 
-Both modern workspaces declared in `zolt.toml` and legacy
-`zolt-workspace.toml` files are supported.
+Workspaces use the final `[workspace]` domain in the root `zolt.toml`.
 
 ## Removed or renamed lockfiles
 
@@ -173,9 +172,9 @@ supported.
 
 ## Compatibility
 
-The action accepts Zolt tree schemas 1 and 3 and workspace lock versions 5 and
-6. It bundles Zolt `0.1.0-zap.20260816.aa64f3e7043e` from source commit
-[`aa64f3e7043e787ff22d4d89f0cab13a7bdc64a8`](https://github.com/zoltsh/zolt/commit/aa64f3e7043e787ff22d4d89f0cab13a7bdc64a8).
+The action accepts Zolt tree schemas 1 and 3 and final workspace lock version
+7. It bundles Zolt `0.1.0-zap.20260823.0ea7fe1473b4` from source commit
+[`0ea7fe1473b4b852e62c452a04c2518d5e7e93ff`](https://github.com/zoltsh/zolt/commit/0ea7fe1473b4b852e62c452a04c2518d5e7e93ff).
 
 ## Read more
 
