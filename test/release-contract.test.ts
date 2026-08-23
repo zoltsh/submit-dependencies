@@ -30,7 +30,7 @@ describe('release contract', () => {
         expect(releasing).toContain('`ACTION_VERSION`');
         expect(releasing).toContain('detector version');
         expect(releasing).toContain('`v0`');
-        expect(releasing).toContain('`v0.1`');
+        expect(releasing).toContain('matching minor compatibility tag');
     });
 });
 

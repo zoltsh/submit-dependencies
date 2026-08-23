@@ -22,7 +22,7 @@ npm package.
 1. Create an OpenPGP-signed annotated version tag on the reviewed commit.
 2. Push the immutable tag.
 3. Create a GitHub release from the tag.
-4. Move the `v0` and `v0.1` compatibility tags only after the immutable
+4. Move the `v0` and matching minor compatibility tag only after the immutable
    versioned release is public and verified.
 5. Update Zolt workflows to the release commit's full SHA.
 

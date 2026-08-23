@@ -40,7 +40,7 @@ function manifest(mode: 'project' | 'workspace' = 'project'): ConvertedManifest 
         dependencies: new Map([[purl, {
             dependencies: [], packageUrl: purl, relationship: 'direct', scope: 'runtime',
         }]]),
-        ...mode === 'workspace' ? { lockVersion: 5 } : {},
+        ...mode === 'workspace' ? { lockVersion: 7 } : {},
         mode,
         name: 'zolt.lock',
         sourceLocation: 'zolt.lock',

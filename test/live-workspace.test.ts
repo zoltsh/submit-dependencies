@@ -43,7 +43,7 @@ describe('live pinned Zolt workspace contract', () => {
                 });
                 const result = convert({ ...machine, purlPolicy: PRESERVE_ZOLT_PURLS });
 
-                expect(result).toMatchObject({ lockVersion: 6, mode: 'workspace', treeSchema: 3 });
+                expect(result).toMatchObject({ lockVersion: 7, mode: 'workspace', treeSchema: 3 });
                 expect(result.statistics).toEqual({
                     dependencyEdges: 21,
                     development: 21,

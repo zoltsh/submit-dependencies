@@ -2,21 +2,12 @@
 name = "dependency-submission-fixture"
 version = "0.1.0"
 group = "com.zoltsh.fixture"
-java = "21"
-
-[repositories]
-central = "https://repo.maven.apache.org/maven2"
+java = 21
 
 [dependencies]
 "org.slf4j:slf4j-api" = "2.0.17"
 "io.netty:netty-transport-native-epoll" = { version = "4.1.136.Final", classifier = "linux-x86_64" }
 "org.springframework.boot:spring-boot-dependencies" = { version = "3.5.5", type = "pom" }
 
-[test.dependencies]
-"org.slf4j:slf4j-api" = "2.0.17"
-
-[build]
-source = "src/main/java"
-test = "src/test/java"
-output = "target/classes"
-testOutput = "target/test-classes"
+[dependencies.test]
+"org.junit.platform:junit-platform-console-standalone" = "1.11.4"

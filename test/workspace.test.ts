@@ -21,7 +21,7 @@ async function repository(relativeDirectory = '.'): Promise<RepositoryDirectory>
 
 async function project(root: string): Promise<void> {
     await writeFile(join(root, 'zolt.toml'), '[project]\nname = "demo"\n');
-    await writeFile(join(root, 'zolt.lock'), 'version = 5\n');
+    await writeFile(join(root, 'zolt.lock'), 'version = 7\n');
 }
 
 describe('Zolt project selection', () => {
@@ -36,18 +36,13 @@ describe('Zolt project selection', () => {
         });
     });
 
-    it('discovers root-config and legacy workspaces from members', async () => {
+    it('discovers a final root-config workspace from a member', async () => {
         const rootConfig = await repository('apps/api');
         await writeFile(join(rootConfig.workspace, 'zolt.toml'), '[workspace] # root\nname = "demo"\n');
-        await writeFile(join(rootConfig.workspace, 'zolt.lock'), 'version = 5\n');
+        await writeFile(join(rootConfig.workspace, 'zolt.lock'), 'version = 7\n');
         await expect(selectZoltProject(rootConfig, 'auto')).resolves.toMatchObject({
             manifestPath: 'zolt.lock', mode: 'workspace', root: rootConfig.workspace,
         });
-
-        const legacy = await repository('modules/core');
-        await writeFile(join(legacy.workspace, 'zolt-workspace.toml'), 'name = "demo"\n');
-        await writeFile(join(legacy.workspace, 'zolt.lock'), 'version = 5\n');
-        await expect(selectZoltProject(legacy, 'true')).resolves.toMatchObject({ mode: 'workspace', root: legacy.workspace });
     });
 
     it('fails clearly when required discovery or files are missing', async () => {
@@ -61,7 +56,7 @@ describe('Zolt project selection', () => {
         const repo = await repository();
         const outside = await repository();
         await writeFile(join(repo.workspace, 'zolt.toml'), '[project]\nname = "demo"\n');
-        await writeFile(join(outside.workspace, 'outside.lock'), 'version = 5\n');
+        await writeFile(join(outside.workspace, 'outside.lock'), 'version = 7\n');
         await symlink(join(outside.workspace, 'outside.lock'), join(repo.workspace, 'zolt.lock'));
         await expect(selectZoltProject(repo, 'false')).rejects.toThrow('ZOLT-WORKSPACE-004');
     });

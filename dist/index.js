@@ -34109,8 +34109,8 @@ function decodeV3(root) {
     tree_requireLiteral(root.command, 'tree', 'tree.command');
     tree_requireLiteral(root.mode, 'workspace', 'tree.mode');
     const lockVersion = integer(root.lockVersion, 'tree.lockVersion');
-    if (lockVersion !== 5 && lockVersion !== 6) {
-        throw contractError(`Tree schema 3 lockVersion ${lockVersion.toString()} is unsupported; expected 5 or 6.`);
+    if (lockVersion !== 7) {
+        throw contractError(`Tree schema 3 lockVersion ${lockVersion.toString()} is unsupported; expected 7.`);
     }
     const workspace = object(root.workspace, 'tree.workspace');
     assertKeys(workspace, 'tree.workspace', ['name', 'members']);
@@ -34662,7 +34662,7 @@ async function realPath(label, path) {
 }
 
 ;// CONCATENATED MODULE: ./src/constants.ts
-const ACTION_VERSION = '0.1.1';
+const ACTION_VERSION = '0.2.0';
 const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
 const MAX_ARCHIVE_DECOMPRESSION_RATIO = 100;
 const MAX_ARCHIVE_ENTRIES = 10_000;
@@ -40333,15 +40333,15 @@ function parseBoolean(name, value) {
 ;// CONCATENATED MODULE: ./src/generated/zolt-release.ts
 // Workspace-capable release candidate. Keep the version and every platform
 // digest aligned with the immutable Zolt channel manifest.
-const ZOLT_VERSION = '0.1.0-zap.20260816.aa64f3e7043e';
-const ZOLT_SOURCE_COMMIT = 'aa64f3e7043e787ff22d4d89f0cab13a7bdc64a8';
+const ZOLT_VERSION = '0.1.0-zap.20260823.0ea7fe1473b4';
+const ZOLT_SOURCE_COMMIT = '0ea7fe1473b4b852e62c452a04c2518d5e7e93ff';
 const tag = `zolt-zap-${ZOLT_VERSION}`;
 const base = `https://github.com/zoltsh/releases/releases/download/${tag}`;
 const ZOLT_RELEASE = {
-    'linux-arm64': artifact('linux-arm64', '0a4da04965f02dcef14b99c8ad0d84e60ff1829db02624aa82e2d78e3ab6b59c'),
-    'linux-x64': artifact('linux-x64', 'a1872cf56f6ad42d4db1a1bc3a45851d12c681f56ea6987d859b114eec7a5b83'),
-    'macos-arm64': artifact('macos-arm64', 'c920af8d9fbcf0bdfc277410b14c8bfeb38483017b5568d8f6580b6d84895e73'),
-    'macos-x64': artifact('macos-x64', 'dbf881a809627bf3ef7239fe46ebe0e0b00f0c45deea1e4e4730c3f9ad2ed63c'),
+    'linux-arm64': artifact('linux-arm64', 'bf8a49aab74d2cc05f01f044b15d7b6b8f8263dc8aefe9168fbd827c3a6253c4'),
+    'linux-x64': artifact('linux-x64', '11c55e4117d55d1776c5eddca801b8e5f65cc9b16f2c5a8313b9f473547fdd57'),
+    'macos-arm64': artifact('macos-arm64', '7bca990eea0f22a4f4b354c22ac3109d89818ed969781d43e0cc6442b428d661'),
+    'macos-x64': artifact('macos-x64', '1e5dc1502ebd3c4dc5672db1fd5e557cae7c894ae28dd5dc30b1569ccd47b41f'),
 };
 function artifact(target, sha256) {
     const archive = `zolt-${ZOLT_VERSION}-${target}.tar.gz`;
@@ -40867,16 +40867,13 @@ async function selectZoltProject(repository, workspaceMode) {
     if (workspaceRoot !== undefined)
         return workspace(repository, workspaceRoot);
     if (workspaceMode === 'true') {
-        throw new SubmitDependenciesError('ZOLT-WORKSPACE-001', `No Zolt workspace was found from ${repository.relativeDirectory}. Expected zolt.toml with [workspace] or zolt-workspace.toml. Set workspace: false to submit a standalone project.`);
+        throw new SubmitDependenciesError('ZOLT-WORKSPACE-001', `No Zolt workspace was found from ${repository.relativeDirectory}. Expected zolt.toml with [workspace]. Set workspace: false to submit a standalone project.`);
     }
     return standalone(repository, repository.directory);
 }
 async function discoverWorkspace(repository) {
     let current = repository.directory;
     while (contained(repository.workspace, current)) {
-        const legacy = (0,external_node_path_namespaceObject.resolve)(current, 'zolt-workspace.toml');
-        if (await regularFileInside(legacy, repository.workspace, false) !== undefined)
-            return current;
         const rootConfig = await regularFileInside((0,external_node_path_namespaceObject.resolve)(current, 'zolt.toml'), repository.workspace, false);
         if (rootConfig !== undefined && await containsWorkspaceTable(rootConfig))
             return current;

@@ -11,7 +11,7 @@ function manifest(): ConvertedManifest {
             [a, { dependencies: [b], packageUrl: a, relationship: 'direct', scope: 'runtime' }],
             [b, { dependencies: [], packageUrl: b, relationship: 'indirect', scope: 'development' }],
         ]),
-        lockVersion: 5,
+        lockVersion: 7,
         mode: 'workspace',
         name: 'zolt.lock',
         sourceLocation: 'zolt.lock',
@@ -43,7 +43,7 @@ describe('dependency snapshot construction', () => {
                 html_url: 'https://github.com/zoltsh/demo/actions/runs/42',
             },
             detector: {
-                name: 'zoltsh/submit-dependencies', version: '0.1.1',
+                name: 'zoltsh/submit-dependencies', version: '0.2.0',
                 url: 'https://github.com/zoltsh/submit-dependencies',
             },
         });
