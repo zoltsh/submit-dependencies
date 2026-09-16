@@ -35,12 +35,12 @@
     "tar": "7.5.22"
   },
   "devDependencies": {
-    "@types/node": "24.13.3",
-    "@vercel/ncc": "0.44.1",
-    "@vitest/coverage-v8": "4.1.10",
-    "eslint": "10.8.0",
+    "@types/node": "24.13.4",
+    "@vercel/ncc": "0.45.0",
+    "@vitest/coverage-v8": "5.0.0",
+    "eslint": "10.10.0",
     "eslint-config-rubric": "0.1.0-alpha.0",
     "typescript": "6.0.3",
-    "vitest": "4.1.10"
+    "vitest": "5.0.0"
   }
 }
